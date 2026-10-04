@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+[x-cloak] { display: none !important; }
+
+/* Edge adds its own "show password" eye to every password field. We ship our own toggle, so hide the built-in one. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear { display: none; }
+
+/* A newly arrived ticket in "Waiting for acceptance" slides in and settles. */
+@keyframes pending-in {
+    from { opacity: 0; transform: translateY(-10px); background-color: rgb(237 233 254); }
+    to   { opacity: 1; transform: none; }
+}
+.pending-row.is-new { animation: pending-in 0.5s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+    .pending-row.is-new { animation: none; }
+}
+
+/* Sign-in screens: soft brand glow plus a faint circuit-trace pattern that echoes the logo. */
+.auth-backdrop {
+    background-color: #f2f6fc;
+    background-image:
+        radial-gradient(48rem 34rem at 6% 4%, rgba(59, 154, 232, 0.28), transparent 62%),
+        radial-gradient(44rem 32rem at 96% 98%, rgba(99, 102, 241, 0.20), transparent 62%);
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+}
+.auth-circuit {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160' fill='none' stroke='rgb(15,45,107)' stroke-opacity='.075' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M0 40h46l14 14h40v0M100 54v30l14 14h46M0 98h20l10 10M60 0v18l10 10M60 160v-34l14-14h30l16-16V70M0 120h28l12-12'/%3E%3Ccircle cx='100' cy='54' r='3'/%3E%3Ccircle cx='160' cy='98' r='3'/%3E%3Ccircle cx='40' cy='108' r='3'/%3E%3Ccircle cx='120' cy='70' r='3'/%3E%3Ccircle cx='70' cy='28' r='3'/%3E%3C/svg%3E");
+    background-size: 160px 160px;
+    -webkit-mask-image: radial-gradient(ellipse 42% 52% at 50% 50%, transparent 50%, #000 100%);
+    mask-image: radial-gradient(ellipse 42% 52% at 50% 50%, transparent 50%, #000 100%);
+}

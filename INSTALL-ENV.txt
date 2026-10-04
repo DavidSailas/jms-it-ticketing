@@ -1,0 +1,35 @@
+=== 1. Edit .env (do NOT overwrite it) ===
+Change/add these lines:
+
+APP_NAME="JMS One IT"
+APP_URL=http://jms-it-ticketing.test
+
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=jms_it_ticketing
+DB_USERNAME=root
+DB_PASSWORD=
+
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+FACEBOOK_CLIENT_ID=
+FACEBOOK_CLIENT_SECRET=
+
+(Make sure the DB_HOST / DB_PORT / DB_DATABASE / DB_USERNAME / DB_PASSWORD lines are not commented out with #.)
+
+=== 2. Start MySQL (DBngin) and create an empty database: jms_it_ticketing ===
+
+=== 3. Run in cmd, inside C:\Projects\jms-it-ticketing ===
+php artisan optimize:clear
+php artisan migrate:fresh --seed
+npm run build        (or `npm run dev` and leave it running)
+
+=== 4. Open http://jms-it-ticketing.test ===
+user@jmsoneit.com       P@ssw0rd123
+itsupport@jmsoneit.com  P@ssw0rd123
+admin@jmsoneit.com      P@ssw0rd123
+superadmin@jmsoneit.com P@ssw0rd123
+
+Optional test run (uses in-memory SQLite, never touches MySQL):
+php artisan test
