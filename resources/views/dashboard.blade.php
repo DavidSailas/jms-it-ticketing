@@ -119,7 +119,10 @@
                  :class="$store.pending.isFresh(t.id) ? 'is-new bg-violet-50/70' : ''">
                 <div class="flex min-w-0 items-start gap-3">
                     <template x-if="t.avatar">
-                        <img :src="t.avatar" :alt="t.requester" loading="lazy" class="h-9 w-9 shrink-0 rounded-full object-cover ring-2 ring-white">
+                        <button type="button" :data-photo="t.avatar" :data-photo-name="t.requester" :aria-label="'View ' + t.requester + ' photo'" title="View photo" style="cursor:zoom-in"
+                                class="inline-flex shrink-0 rounded-full transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2">
+                            <img :src="t.avatar" alt="" loading="lazy" class="h-9 w-9 shrink-0 rounded-full object-cover ring-2 ring-white">
+                        </button>
                     </template>
                     <template x-if="!t.avatar">
                         <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-800 text-sm font-bold uppercase text-white ring-2 ring-white" x-text="t.initials" :aria-label="t.requester"></span>
@@ -190,7 +193,7 @@
                                             <span aria-hidden="true" class="px-1 text-slate-300">/</span>{{ $t->user->name }}
                                         </p>
                                         <p class="flex min-w-0 shrink-0 items-center gap-1.5 text-slate-600">
-                                            <x-avatar :user="$t->assignee" size="h-5 w-5" text="text-[8px]" />
+                                            <x-avatar :user="$t->assignee" size="h-5 w-5" text="text-[8px]" :zoom="false" />
                                             <span class="max-w-[7rem] truncate">{{ \Illuminate\Support\Str::before($t->assignee->name, ' ') }}</span>
                                         </p>
                                     </div>

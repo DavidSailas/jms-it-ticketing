@@ -125,7 +125,7 @@
                                     class="group cursor-pointer transition hover:bg-brand-50/40">
                                     <td class="py-3 pl-5 pr-3">
                                         <div class="flex items-center gap-3">
-                                            <a href="{{ route('users.show', $u) }}" tabindex="-1" aria-hidden="true"><x-avatar :user="$u" size="h-10 w-10" text="text-sm" /></a>
+                                            <x-avatar :user="$u" size="h-10 w-10" text="text-sm" />
                                             <div class="min-w-0">
                                                 <p class="truncate font-semibold text-slate-900"><a href="{{ route('users.show', $u) }}" class="hover:text-brand-700 hover:underline">{{ $u->name }}</a>@if ($u->id === auth()->id()) <span class="ml-1 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700">YOU</span>@endif</p>
                                                 <p class="truncate text-xs text-slate-500">{{ $u->email }}</p>

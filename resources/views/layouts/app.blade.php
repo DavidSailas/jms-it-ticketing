@@ -146,7 +146,7 @@
                     <button type="button" @click="menu = !menu" :aria-expanded="menu" aria-haspopup="menu"
                             class="flex items-center gap-3 rounded-full py-1 pl-1 pr-2 transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 sm:pr-3"
                             :class="menu ? 'bg-slate-100' : ''" aria-label="Account menu">
-                        <x-avatar :user="auth()->user()" />
+                        <x-avatar :user="auth()->user()" :zoom="false" />
                         <span class="hidden text-left sm:block">
                             <span class="block max-w-[11rem] truncate text-sm font-semibold leading-tight text-slate-800">{{ auth()->user()->name }}</span>
                             <span class="block max-w-[11rem] truncate text-xs text-slate-500">{{ auth()->user()->company ?: auth()->user()->roleLabel() }}</span>
@@ -200,5 +200,7 @@
             {{ $slot }}
         </main>
     </div>
+
+    @include('layouts.partials.photo-viewer')
 </body>
 </html>
