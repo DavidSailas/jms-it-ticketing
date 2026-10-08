@@ -15,15 +15,15 @@ export default {
             fontFamily: { sans: ['Inter', ...defaultTheme.fontFamily.sans] },
             colors: {
                 brand: {
-                    50:  '#eef6ff',
-                    100: '#d9ebff',
-                    200: '#bcdcff',
-                    400: '#5aa9ee',
-                    500: '#3b9ae8',   // light blue (ONE IT)
-                    600: '#1e5fbf',
-                    700: '#164a99',
-                    800: '#0f2d6b',   // navy (JMS)
-                    900: '#0a1f4d',
+                    50:  'rgb(var(--brand-50) / <alpha-value>)',
+                    100: 'rgb(var(--brand-100) / <alpha-value>)',
+                    200: 'rgb(var(--brand-200) / <alpha-value>)',
+                    400: 'rgb(var(--brand-400) / <alpha-value>)',
+                    500: 'rgb(var(--brand-500) / <alpha-value>)',   // light blue (ONE IT)
+                    600: 'rgb(var(--brand-600) / <alpha-value>)',
+                    700: 'rgb(var(--brand-700) / <alpha-value>)',
+                    800: 'rgb(var(--brand-800) / <alpha-value>)',   // navy (JMS)
+                    900: 'rgb(var(--brand-900) / <alpha-value>)',
                 },
             },
         },

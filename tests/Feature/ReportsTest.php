@@ -96,7 +96,7 @@ class ReportsTest extends TestCase
         $this->assertSame(0, $res->viewData('now')['waiting']);
     }
 
-    public function test_csv_export_lists_the_tickets_of_the_period(): void
+    public function test_excel_export_lists_the_tickets_of_the_period(): void
     {
         $this->seed(DatabaseSeeder::class);
         $this->ticket(['subject' => 'Wi-Fi keeps dropping']);
@@ -105,9 +105,21 @@ class ReportsTest extends TestCase
 
         $res = $this->actingAs($this->u('superadmin@jmsoneit.com'))->get('/reports/export?range=this_month');
         $res->assertOk();
-        $body = $res->streamedContent();
-        $this->assertStringContainsString('Wi-Fi keeps dropping', $body);
-        $this->assertStringNotContainsString('Last year problem', $body);
-        $this->assertStringContainsString('Ticket,Subject,Requester', $body);
+        $this->assertStringContainsString('.xlsx', $res->headers->get('Content-Disposition'));
+
+        // The export is an .xlsx workbook (a zip of XML files), so open it and read the sheet.
+        $file = tempnam(sys_get_temp_dir(), 'xlsx');
+        file_put_contents($file, $res->streamedContent());
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($file) === true, 'The export is not a valid .xlsx file.');
+        $sheet = $zip->getFromName('xl/worksheets/sheet1.xml');
+        $zip->close();
+        unlink($file);
+
+        $this->assertStringContainsString('Wi-Fi keeps dropping', $sheet);
+        $this->assertStringNotContainsString('Last year problem', $sheet);
+        foreach (['Ticket', 'Subject', 'Requester'] as $heading) {
+            $this->assertStringContainsString('>' . $heading . '<', $sheet);
+        }
     }
 }

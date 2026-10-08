@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Support\Activity;
+use App\Support\Attachments;
 use App\Support\Notifier;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -63,13 +64,16 @@ class TicketController extends Controller
         if ($request->user()->role === 'user') {
             return redirect()->route('dashboard');
         }
-        abort_if($request->user()->role === 'it_support', 403);
+        abort_unless($request->user()->canLogTickets(), 403);
 
         return view('tickets.create');
     }
 
     public function store(Request $request)
     {
+        // Tickets are logged by the people of a partner company; JMS's own people (super admins, JMS admins) belong to none.
+        abort_unless($request->user()->canLogTickets(), 403);
+
         $data = $request->validate([
             'subject'       => 'required|string|min:5|max:150',
             'category'      => ['required', Rule::in(Ticket::CATEGORIES)],
@@ -79,7 +83,7 @@ class TicketController extends Controller
             'scheduled_for' => $this->scheduleRules(),
             'contact_phone' => ['nullable', 'string', 'max:30', 'regex:/^[0-9+()\-\s]{7,30}$/'],
             'location'      => 'nullable|string|max:255',
-        ], [
+        ] + Attachments::rules(), Attachments::messages() + [
             'subject.required'     => 'Enter a short subject for your ticket.',
             'subject.min'          => 'The subject must be at least 5 characters.',
             'subject.max'          => 'The subject can be at most 150 characters.',
@@ -98,11 +102,15 @@ class TicketController extends Controller
             'location.max'         => 'The location can be at most 255 characters.',
         ]);
 
+        // The files are not a column on the ticket; they are saved on their own below.
+        unset($data['files']);
         $data = $this->applySchedule($data);
 
         $ticket = $request->user()->tickets()->create($data);
+        $saved  = Attachments::store($ticket, $request->user(), $request->file('files', []));
+
         Notifier::ticketCreated($ticket, $request->user());
-        Activity::record($request->user(), 'ticket_created', "Submitted {$ticket->ticket_no}: {$ticket->subject}", $ticket);
+        Activity::record($request->user(), 'ticket_created', "Submitted {$ticket->ticket_no}: {$ticket->subject}" . Attachments::note($saved), $ticket);
 
         return redirect()->route('tickets.show', $ticket)
             ->with('success', "Ticket {$ticket->ticket_no} submitted. Our IT team will respond soon.");
@@ -113,9 +121,9 @@ class TicketController extends Controller
         $user = $request->user();
         $this->authorizeView($user, $ticket);
 
-        $ticket->load(['user', 'assignee', 'acceptor']);
+        $ticket->load(['user', 'assignee', 'acceptor', 'attachments']);
 
-        $comments = $ticket->comments()->with('user')
+        $comments = $ticket->comments()->with(['user', 'attachments'])
             ->when($user->role === 'user', fn ($q) => $q->where('is_internal', false))
             ->oldest()->get();
 
@@ -124,7 +132,7 @@ class TicketController extends Controller
             ->oldest('created_at')->get();
 
         $isAdmin   = in_array($user->role, self::ADMINS);
-        $engineers = $isAdmin ? User::where('role', 'it_support')->orderBy('name')->get() : collect();
+        $engineers = $isAdmin ? $ticket->assignableEngineers($user) : collect();
         $workload  = $isAdmin
             ? Ticket::whereIn('status', ['assigned', 'in_progress', 'on_hold'])->whereNotNull('assigned_to')
                 ->selectRaw('assigned_to, count(*) as total')->groupBy('assigned_to')->pluck('total', 'assigned_to')
@@ -192,10 +200,14 @@ class TicketController extends Controller
     /** Admin: free-form override (status / priority / engineer). The "Accept & assign" form is the normal way. */
     public function update(Request $request, Ticket $ticket)
     {
+        if ($ticket->isLockedToJms($request->user())) {
+            return back()->with('error', 'JMS support is handling this ticket, so only JMS can reassign it. Add a reply on the ticket if you need to tell them something.');
+        }
+
         $data = $request->validate([
             'status'      => ['required', Rule::in(Ticket::STATUSES)],
             'priority'    => ['required', Rule::in(Ticket::PRIORITIES)],
-            'assigned_to' => ['nullable', Rule::exists('users', 'id')->where('role', 'it_support')],
+            'assigned_to' => ['nullable', Rule::in($ticket->assignableEngineers($request->user())->pluck('id')->all())],
         ]);
 
         // Keep status and assignment consistent.
@@ -229,18 +241,22 @@ class TicketController extends Controller
     /** Admin: accept the ticket and hand it to an IT engineer (on-site or remote). */
     public function assign(Request $request, Ticket $ticket)
     {
+        if ($ticket->isLockedToJms($request->user())) {
+            return back()->with('error', 'JMS support is handling this ticket, so only JMS can reassign it. Add a reply on the ticket if you need to tell them something.');
+        }
+
         if ($ticket->isFinished()) {
             return back()->with('error', 'This ticket is already ' . strtolower($ticket->statusLabel()) . ' and can no longer be assigned.');
         }
 
         $data = $request->validate([
-            'assigned_to'  => ['required', Rule::exists('users', 'id')->where('role', 'it_support')],
+            'assigned_to'  => ['required', Rule::in($ticket->assignableEngineers($request->user())->pluck('id')->all())],
             'support_type' => ['required', Rule::in(array_keys(Ticket::SUPPORT_TYPES))],
             'priority'     => ['required', Rule::in(Ticket::PRIORITIES)],
             'note'         => 'nullable|string|max:500',
         ], [
             'assigned_to.required' => 'Choose the engineer who will handle this ticket.',
-            'assigned_to.exists'   => 'Choose an IT Support engineer from the list.',
+            'assigned_to.in'       => 'Choose an IT Support engineer from the list.',
             'support_type.required' => 'Choose on-site or remote support.',
         ]);
 
@@ -410,19 +426,27 @@ class TicketController extends Controller
             return back()->with('error', 'This ticket was cancelled, so replies are turned off.');
         }
 
-        $request->validate(['body' => 'required|string|max:3000']);
+        $request->validate(
+            ['body' => ['required_without:files', 'nullable', 'string', 'max:3000']] + Attachments::rules(),
+            Attachments::messages() + ['body.required_without' => 'Write a reply or attach a file.']
+        );
+
+        $files = $request->file('files', []);
+        $body  = trim((string) $request->body);
 
         $comment = $ticket->comments()->create([
             'user_id'     => $user->id,
-            'body'        => $request->body,
+            // A reply that is only a screenshot or log file still needs some text to show in the conversation.
+            'body'        => $body !== '' ? $body : (count($files) === 1 ? 'Attached a file.' : 'Attached ' . count($files) . ' files.'),
             'is_internal' => $user->isStaff() && $request->boolean('is_internal'),
         ]);
+        $saved = Attachments::store($ticket, $user, $files, $comment);
 
         Notifier::commentAdded($ticket, $comment, $user);
         Activity::record(
             $user,
             $comment->is_internal ? 'note_added' : 'comment_added',
-            ($comment->is_internal ? 'Added an internal note on ' : 'Replied on ') . $ticket->ticket_no,
+            ($comment->is_internal ? 'Added an internal note on ' : 'Replied on ') . $ticket->ticket_no . Attachments::note($saved),
             $ticket
         );
 

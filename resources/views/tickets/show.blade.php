@@ -7,6 +7,7 @@
         $isAdmin    = in_array($me->role, ['admin', 'super_admin']);
         $isEngineer = $me->role === 'it_support';
         $isStaff    = $me->isStaff();
+        $jmsLocked  = $isAdmin && $ticket->isLockedToJms($me); // JMS dispatched it: a partner admin can no longer reassign it
         $final      = $ticket->isFinished();
         $cancelled  = $ticket->status === 'cancelled';
         $steps = ['open' => 'Submitted', 'assigned' => 'Assigned', 'in_progress' => 'In progress', 'resolved' => 'Resolved', 'closed' => 'Closed'];
@@ -61,6 +62,14 @@
                     <h3 class="mb-2 text-sm font-semibold text-slate-700">Description</h3>
                     <p class="whitespace-pre-line text-sm leading-relaxed text-slate-700">{{ $ticket->description }}</p>
                 </div>
+
+                @php($submitted = $ticket->attachments->whereNull('ticket_comment_id'))
+                @if ($submitted->isNotEmpty())
+                    <div class="mt-5 border-t border-slate-100 pt-5">
+                        <h3 class="mb-2 text-sm font-semibold text-slate-700">Attachments <span class="font-normal text-slate-400">({{ $submitted->count() }})</span></h3>
+                        <x-attachment-list :ticket="$ticket" :attachments="$submitted" />
+                    </div>
+                @endif
             </div>
 
             {{-- Resolution --}}
@@ -91,6 +100,9 @@
                                     <span>&middot; {{ $c->created_at->diffForHumans() }}</span>
                                 </div>
                                 <p class="whitespace-pre-line text-sm">{{ $c->body }}</p>
+                                @if ($c->attachments->isNotEmpty())
+                                    <x-attachment-list :ticket="$ticket" :attachments="$c->attachments" class="mt-3" />
+                                @endif
                             </div>
                         </div>
                     @empty
@@ -99,10 +111,11 @@
                 </div>
 
                 @unless ($cancelled)
-                    <form method="POST" action="{{ route('tickets.comment', $ticket) }}" class="mt-5 space-y-3">
+                    <form method="POST" action="{{ route('tickets.comment', $ticket) }}" enctype="multipart/form-data" class="mt-5 space-y-3">
                         @csrf
-                        <textarea name="body" rows="3" required placeholder="Write a reply..." class="{{ $field }}"></textarea>
+                        <textarea name="body" rows="3" placeholder="Write a reply..." class="{{ $field }}"></textarea>
                         @error('body') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
+                        <x-attachment-picker label="Attach a screenshot or log file">Add a screenshot, photo of the error or log file to your reply.</x-attachment-picker>
                         <div class="flex items-center justify-between">
                             @if ($isStaff)
                                 <label class="flex items-center gap-2 text-sm text-slate-600">
@@ -138,8 +151,16 @@
         {{-- Right column --}}
         <div class="space-y-6">
 
+            {{-- Partner admin: JMS is on it --}}
+            @if ($jmsLocked && ! $final)
+                <div class="rounded-2xl border border-slate-200 bg-indigo-50 p-5 text-sm text-indigo-800">
+                    <p class="font-semibold text-indigo-700">Handled by JMS support</p>
+                    <p class="mt-1 text-indigo-800">{{ $ticket->assignee->name }} from JMS is working on this ticket. Use the reply box to add details or ask for an update.</p>
+                </div>
+            @endif
+
             {{-- Admin: accept & assign --}}
-            @if ($isAdmin && ! $final)
+            @if ($isAdmin && ! $final && ! $jmsLocked)
                 <form id="assign" method="POST" action="{{ route('tickets.assign', $ticket) }}"
                       class="scroll-mt-24 space-y-4 rounded-2xl border bg-white p-5 shadow-sm {{ $ticket->assigned_to ? 'border-slate-200' : 'border-violet-300 ring-4 ring-violet-100' }}">
                     @csrf
@@ -152,11 +173,23 @@
                         <label class="mb-1 block text-sm font-medium text-slate-700">IT engineer</label>
                         <select name="assigned_to" class="{{ $field }}" required>
                             @unless ($ticket->assigned_to) <option value="">Choose an engineer...</option> @endunless
-                            @foreach ($engineers as $e)
-                                <option value="{{ $e->id }}" @selected((int) old('assigned_to', $ticket->assigned_to) === $e->id)>{{ $e->name }} &middot; {{ $workload[$e->id] ?? 0 }} active</option>
+                            @foreach ($engineers->groupBy(fn ($e) => $e->isJmsEngineer() ? 'JMS support team' : 'Company IT team') as $group => $list)
+                                <optgroup label="{{ $group }}">
+                                    @foreach ($list as $e)
+                                        <option value="{{ $e->id }}" @selected((int) old('assigned_to', $ticket->assigned_to) === $e->id)>{{ $e->name }} &middot; {{ $workload[$e->id] ?? 0 }} active</option>
+                                    @endforeach
+                                </optgroup>
                             @endforeach
                         </select>
-                        @if ($engineers->isEmpty()) <p class="mt-1 text-xs text-amber-700">No IT Support accounts yet. Create one under Users.</p> @endif
+                        @if ($engineers->isEmpty())
+                            <p class="mt-1 text-xs text-amber-700">
+                                @if ($me->canDispatchJms()) No IT Support accounts yet. Create one under Users (choose "JMS One IT (our team)" for our own engineers).
+                                @else No IT engineers are available yet. Ask JMS to add one. @endif
+                            </p>
+                        @endif
+                        @if ($engineers->isNotEmpty())
+                            <p class="mt-1 text-xs text-slate-500">Choose one of the JMS support engineers, or your own company's IT team if you have one.</p>
+                        @endif
                         @error('assigned_to') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
                     </div>
 
@@ -322,6 +355,7 @@
                 </div>
                 <dl class="space-y-3 text-sm">
                     @foreach ([
+                        ['Company', $ticket->company?->name ?? $ticket->user->company ?? '-'],
                         ['When needed', $ticket->whenLabel()],
                         ['Contact number', $ticket->contact_phone ?: '-'],
                         ['Location', $ticket->location ?: '-'],
@@ -341,7 +375,7 @@
             </div>
 
             {{-- Admin: manual override --}}
-            @if ($isAdmin)
+            @if ($isAdmin && ! $jmsLocked)
                 <details class="{{ $card }} p-5">
                     <summary class="cursor-pointer text-sm font-semibold text-slate-700">Advanced: override status</summary>
                     <form method="POST" action="{{ route('tickets.update', $ticket) }}" class="mt-4 space-y-4">

@@ -1,7 +1,7 @@
-<x-guest-layout>
+<x-guest-layout title="Sign in">
     <div class="mb-5 mt-4 text-center [@media(max-height:700px)]:mb-4 [@media(max-height:700px)]:mt-2">
-        <h1 class="text-2xl font-extrabold tracking-tight text-brand-800">Sign in</h1>
-        <p class="mt-1 text-sm text-slate-500">Use your JMS One IT account.</p>
+        <h1 class="text-2xl font-extrabold tracking-tight text-brand-800">Welcome to the IT Service Desk</h1>
+        <p class="mt-1 text-sm text-slate-500">Sign in to submit and track your support requests.</p>
     </div>
 
     @if (session('status'))
@@ -48,7 +48,7 @@
                     <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>
                 </span>
                 <input id="login" name="login" type="text" x-ref="login" x-model="login" autofocus autocomplete="username" autocapitalize="none" spellcheck="false"
-                       placeholder="Enter your email or username"
+                       placeholder="you@yourcompany.com or username"
                        @input="errors.login = ''" @blur="if (login.trim()) checkLogin()"
                        :aria-invalid="errors.login ? 'true' : 'false'" aria-describedby="login-error"
                        :class="errors.login || {{ $errors->has('credentials') ? 'true' : 'false' }} ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-slate-300 focus:border-brand-500 focus:ring-brand-500'"
@@ -89,7 +89,7 @@
                 <button type="button" @click="help = !help" :aria-expanded="help" aria-controls="forgot-help"
                         class="rounded text-sm font-medium text-brand-600 hover:text-brand-800 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">Forgot password?</button>
             </div>
-            <p id="forgot-help" x-show="help" x-cloak class="mt-2.5 rounded-lg bg-brand-50 px-3 py-2.5 text-sm text-brand-800">Your IT administrator resets passwords. Contact JMS One IT and they will set a new one for you.</p>
+            <p id="forgot-help" x-show="help" x-cloak class="mt-2.5 rounded-lg bg-brand-50 px-3 py-2.5 text-sm text-brand-800">Ask your company administrator to reset your password. Company administrators can contact JMS One IT support.</p>
         </div>
 
         <button type="submit" :disabled="loading"
@@ -99,5 +99,5 @@
         </button>
     </form>
 
-    <p class="mt-5 text-center text-sm text-slate-500">Need an account? Ask your IT administrator.</p>
+    <p class="mt-5 text-center text-sm leading-relaxed text-slate-500">Don't have an account yet? Ask your company administrator to add you.<br>Need help? Contact JMS One IT support.</p>
 </x-guest-layout>

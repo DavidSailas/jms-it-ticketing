@@ -86,7 +86,7 @@ class DashboardController extends Controller
         // Engineer workload.
         $load = Ticket::whereIn('status', ['assigned', 'in_progress', 'on_hold'])->whereNotNull('assigned_to')
             ->selectRaw('assigned_to, count(*) as total')->groupBy('assigned_to')->pluck('total', 'assigned_to');
-        $engineers = User::where('role', 'it_support')->orderBy('name')->get()
+        $engineers = User::where('role', 'it_support')->when(! $user->canDispatchJms(), fn ($q) => $q->inMyCompany())->orderBy('name')->get()
             ->each(fn ($e) => $e->setAttribute('active_tickets', (int) ($load[$e->id] ?? 0)));
 
         // Last 7 days: created vs resolved.

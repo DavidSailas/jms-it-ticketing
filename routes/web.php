@@ -1,5 +1,8 @@
 <?php
 
+use App\Http\Controllers\AttachmentController;
+use App\Http\Controllers\BrandingController;
+use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PendingTicketController;
@@ -43,6 +46,10 @@ Route::middleware('auth')->group(function () {
     Route::post('tickets/{ticket}/reopen', [TicketController::class, 'reopen'])->name('tickets.reopen');
     Route::post('tickets/{ticket}/comments', [TicketController::class, 'comment'])->name('tickets.comment');
 
+    // Screenshots, error photos and log files. Served through the app, never from a public folder.
+    Route::get('tickets/{ticket}/attachments/{attachment}', [AttachmentController::class, 'show'])->name('tickets.attachments.show');
+    Route::delete('tickets/{ticket}/attachments/{attachment}', [AttachmentController::class, 'destroy'])->name('tickets.attachments.destroy');
+
     // Engineers (and admins) update the work progress.
     Route::post('tickets/{ticket}/progress', [TicketController::class, 'progress'])
         ->middleware('role:it_support,admin,super_admin')->name('tickets.progress');
@@ -61,10 +68,23 @@ Route::middleware('auth')->group(function () {
     Route::patch('tickets/{ticket}', [TicketController::class, 'update'])
         ->middleware('role:admin,super_admin')->name('tickets.update');
 
-    // Reports are for super admins only.
+    // Reports and company management are for super admins (JMS) only.
     Route::middleware('role:super_admin')->group(function () {
+        Route::get('companies', [CompanyController::class, 'index'])->name('companies.index');
+        Route::post('companies', [CompanyController::class, 'store'])->name('companies.store');
+        Route::get('companies/{company}', [CompanyController::class, 'show'])->name('companies.show');
+        Route::patch('companies/{company}', [CompanyController::class, 'update'])->name('companies.update');
+        Route::delete('companies/{company}', [CompanyController::class, 'destroy'])->name('companies.destroy');
+        Route::patch('companies/{company}/branding', [BrandingController::class, 'updateFor'])->name('companies.branding');
+
         Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('reports/export', [ReportController::class, 'export'])->name('reports.export');
+    });
+
+    // A company admin sets their own company's name, logo and colour.
+    Route::middleware('role:admin')->group(function () {
+        Route::get('branding', [BrandingController::class, 'edit'])->name('branding.edit');
+        Route::patch('branding', [BrandingController::class, 'update'])->name('branding.update');
     });
 
     Route::middleware('role:admin,super_admin')->group(function () {
@@ -74,6 +94,8 @@ Route::middleware('auth')->group(function () {
         Route::post('users/import', [UserController::class, 'import'])->name('users.import');
         Route::get('users/{user}', [UserController::class, 'show'])->whereNumber('user')->name('users.show');
         Route::patch('users/{user}', [UserController::class, 'update'])->name('users.update');
+        Route::post('users/{user}/avatar', [UserController::class, 'updateAvatar'])->whereNumber('user')->name('users.avatar.update');
+        Route::delete('users/{user}/avatar', [UserController::class, 'destroyAvatar'])->whereNumber('user')->name('users.avatar.destroy');
         Route::post('users/{user}/reset-password', [UserController::class, 'resetPassword'])->name('users.reset-password');
         Route::delete('users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
     });

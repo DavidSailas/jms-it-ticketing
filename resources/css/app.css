@@ -2,6 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Brand palette (the JMS blue). A company's own colour overrides these from the page head. */
+:root {
+    --brand-50: 238 246 255;
+    --brand-100: 217 235 255;
+    --brand-200: 188 220 255;
+    --brand-400: 90 169 238;
+    --brand-500: 59 154 232;
+    --brand-600: 30 95 191;
+    --brand-700: 22 74 153;
+    --brand-800: 15 45 107;
+    --brand-900: 10 31 77;
+}
+
 [x-cloak] { display: none !important; }
 
 /* Edge adds its own "show password" eye to every password field. We ship our own toggle, so hide the built-in one. */

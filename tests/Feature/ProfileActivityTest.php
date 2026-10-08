@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\ActivityLog;
+use App\Models\Company;
 use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -13,9 +14,14 @@ class ProfileActivityTest extends TestCase
 {
     use RefreshDatabase;
 
+    private ?Company $company = null;
+
+    /** Everyone is placed in one partner company: tickets are scoped by company, so an unplaced user would see none. */
     private function user(string $role = 'user'): User
     {
-        return User::factory()->create(['role' => $role, 'password' => Hash::make('Old-password1')]);
+        $this->company ??= Company::create(['name' => 'Acme Corp']);
+
+        return User::factory()->create(['role' => $role, 'company_id' => $this->company->id, 'password' => Hash::make('Old-password1')]);
     }
 
     private function changePassword(User $user, array $data)

@@ -2,13 +2,17 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\CompanyScope;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
 class Ticket extends Model
 {
-    public const CATEGORIES = ['Hardware', 'Software', 'Network / Internet', 'Email / Account Access', 'Printer / Peripherals', 'Security', 'Other'];
+    public const CATEGORIES = [
+        'Network / Internet', 'Database', 'CCTV / Surveillance', 'Server / Infrastructure',
+        'Hardware', 'Software', 'Email / Account Access', 'Printer / Peripherals', 'Security', 'Other',
+    ];
     public const PRIORITIES = ['low', 'medium', 'high', 'critical'];
 
     /**
@@ -29,16 +33,45 @@ class Ticket extends Model
 
     protected static function booted(): void
     {
+        static::addGlobalScope(new CompanyScope);
+
         static::creating(function (Ticket $t) {
             $t->ticket_no = 'JMS-' . now()->format('ymd') . '-' . strtoupper(Str::random(4));
+
+            // A ticket belongs to the company of the person who submitted it.
+            if (! $t->company_id && $t->user_id) {
+                $t->company_id = User::whereKey($t->user_id)->value('company_id');
+            }
         });
     }
 
+    public function company()  { return $this->belongsTo(Company::class); }
     public function user()     { return $this->belongsTo(User::class); }
     public function assignee() { return $this->belongsTo(User::class, 'assigned_to'); }
     public function acceptor() { return $this->belongsTo(User::class, 'accepted_by'); }
     public function comments() { return $this->hasMany(TicketComment::class); }
+    public function attachments() { return $this->hasMany(TicketAttachment::class); }
     public function activity() { return $this->hasMany(ActivityLog::class); }
+
+    /**
+     * The engineers an admin may hand the ticket to: the partner company's own IT Support, plus JMS's own
+     * engineers (IT Support with no company). Super admins, JMS admins and the partner's admin can all pick
+     * from both lists. JMS engineers are listed first. Partner users never see this list.
+     */
+    public function assignableEngineers(User $viewer)
+    {
+        return User::where('role', 'it_support')
+            ->where(fn ($q) => $q->where('company_id', $this->company_id)->orWhereNull('company_id'))
+            ->orderByRaw('CASE WHEN company_id IS NULL THEN 0 ELSE 1 END')
+            ->orderBy('name')
+            ->get();
+    }
+
+    /** Kept for the views: partner admins may now reassign JMS engineers too, so a ticket is never locked. */
+    public function isLockedToJms(User $viewer): bool
+    {
+        return false;
+    }
 
     /** Submitted, but no admin has accepted it or assigned an engineer yet. */
     public function scopeAwaitingAcceptance($query)

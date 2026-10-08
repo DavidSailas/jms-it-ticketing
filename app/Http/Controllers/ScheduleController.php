@@ -23,7 +23,12 @@ class ScheduleController extends Controller
         $gridStart = $month->copy()->startOfMonth()->startOfWeek(Carbon::SUNDAY);
         $gridEnd   = $month->copy()->endOfMonth()->endOfWeek(Carbon::SATURDAY);
 
-        $engineers = $isAdmin ? User::where('role', 'it_support')->orderBy('name')->get(['id', 'name']) : collect();
+        $engineers = $isAdmin
+            ? User::where('role', 'it_support')
+                // JMS dispatchers filter by every engineer; a partner's admin by their own IT team plus JMS's engineers.
+                ->when(! $user->canDispatchJms(), fn ($q) => $q->where(fn ($w) => $w->whereNull('company_id')->orWhere('company_id', $user->company_id)))
+                ->orderBy('name')->get(['id', 'name'])
+            : collect();
 
         $filters = [
             'engineer' => $isAdmin ? (string) $request->query('engineer', '') : '',

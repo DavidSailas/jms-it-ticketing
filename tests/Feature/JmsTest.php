@@ -17,9 +17,9 @@ class JmsTest extends TestCase
     public function test_pages_and_permissions(): void
     {
         $this->seed(DatabaseSeeder::class);
-        $this->assertSame(4, User::count());
+        $this->assertSame(5, User::count());
 
-        $this->get('/login')->assertOk()->assertSee('Welcome back');
+        $this->get('/login')->assertOk()->assertSee('Sign in');
         $this->get('/register')->assertNotFound();
         $this->get('/login')->assertDontSee('Create an account')->assertDontSee('Sign up');
 
@@ -42,8 +42,10 @@ class JmsTest extends TestCase
         $this->actingAs($support)->get('/tickets/create')->assertForbidden();   // engineers do not log tickets
         foreach ([$admin, $super] as $x) {
             $this->actingAs($x)->get('/dashboard')->assertOk()->assertSee('Waiting for acceptance')->assertSee('Active work');
-            $this->actingAs($x)->get('/tickets/create')->assertOk()->assertSee('What kind of problem is it?');
         }
+        // A partner admin logs tickets for their company; the super admin is JMS itself and does not.
+        $this->actingAs($admin)->get('/tickets/create')->assertOk()->assertSee('What kind of problem is it?');
+        $this->actingAs($super)->get('/tickets/create')->assertForbidden();
         foreach ([$user, $support, $admin, $super] as $x) {
             $this->actingAs($x)->get('/tickets')->assertOk();
             $this->actingAs($x)->get('/tickets?status=open&search=Wi-Fi')->assertOk();
@@ -67,9 +69,9 @@ class JmsTest extends TestCase
         $this->actingAs($admin)->post("/tickets/{$t->id}/assign", ['assigned_to' => $support->id, 'support_type' => 'remote', 'priority' => 'high'])->assertRedirect();
         $this->actingAs($support)->get("/tickets/{$t->id}")->assertOk()->assertSee('Update progress');
 
-        // other user cannot see
+        // someone outside the ticket's company cannot see it: company privacy hides it completely (404)
         $other = User::factory()->create(['role' => 'user']);
-        $this->actingAs($other)->get("/tickets/{$t->id}")->assertForbidden();
+        $this->actingAs($other)->get("/tickets/{$t->id}")->assertNotFound();
 
         // comments + internal note hidden from user
         $this->actingAs($support)->post("/tickets/{$t->id}/comments", ['body' => 'SECRETNOTE', 'is_internal' => 1])->assertRedirect();
@@ -94,14 +96,17 @@ class JmsTest extends TestCase
         $this->actingAs($admin)->post('/users', ['name' => 'Eng', 'username' => 'Eng.One', 'company' => 'JMS', 'email' => 'Eng@JMSoneit.com', 'role' => 'it_support'])->assertSessionHasNoErrors();
         $eng = $this->u('eng@jmsoneit.com');
         $this->assertSame('it_support', $eng->role);
-        $this->assertSame('JMS', $eng->company);
+        // A partner admin's new engineer stays in the admin's own company, whatever company text is sent.
+        $this->assertSame($admin->company_id, $eng->company_id);
+        $this->assertSame($admin->company, $eng->company);
         $this->assertTrue(\Hash::check('P@ssw0rd123', $eng->password));
         $eng->update(['password' => \Hash::make('changed')]);
         $this->actingAs($admin)->post("/users/{$eng->id}/reset-password")->assertRedirect();
         $this->assertTrue(\Hash::check('P@ssw0rd123', $eng->fresh()->password));
         $this->actingAs($admin)->post("/users/{$super->id}/reset-password")->assertForbidden();
         $this->actingAs($user)->post("/users/{$eng->id}/reset-password")->assertForbidden();
-        $this->actingAs($super)->post('/users', ['name' => 'Xavier', 'username' => 'xadmin', 'email' => 'x@jmsoneit.com', 'role' => 'admin'])->assertSessionHasNoErrors();
+        // A super admin must place the new admin: in a company, or in JMS's own team ("jms").
+        $this->actingAs($super)->post('/users', ['name' => 'Xavier', 'username' => 'xadmin', 'email' => 'x@jmsoneit.com', 'role' => 'admin', 'company_id' => 'jms'])->assertSessionHasNoErrors();
         $this->assertTrue(\Hash::check('P@ssw0rd123', $this->u('x@jmsoneit.com')->password));
         // admin cannot demote/delete super admin
         $this->actingAs($admin)->patch("/users/{$super->id}", ['role' => 'user'])->assertForbidden();

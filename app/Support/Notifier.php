@@ -20,7 +20,7 @@ class Notifier
     {
         $urgent = in_array($ticket->priority, ['high', 'critical']);
 
-        self::send(self::admins(), $actor, [
+        self::send(self::admins($ticket), $actor, [
             'kind'    => $ticket->priority === 'critical' ? 'urgent' : 'new',
             'title'   => ($ticket->priority === 'critical' ? 'Critical ticket ' : 'New ticket ') . $ticket->ticket_no,
             'message' => "{$actor->name}" . ($actor->company ? " ({$actor->company})" : '') . ': ' . $ticket->subject
@@ -30,7 +30,7 @@ class Notifier
 
     public static function ticketCancelled(Ticket $ticket, User $actor): void
     {
-        self::send(self::admins(), $actor, [
+        self::send(self::admins($ticket), $actor, [
             'kind'    => 'status',
             'title'   => "Ticket cancelled {$ticket->ticket_no}",
             'message' => "{$actor->name} cancelled: {$ticket->subject}",
@@ -114,7 +114,7 @@ class Notifier
         }
 
         // Partner replied: tell the assigned engineer, or the whole team if nobody has it yet.
-        self::send($ticket->assignee ? collect([$ticket->assignee]) : self::admins(), $actor, [
+        self::send($ticket->assignee ? collect([$ticket->assignee]) : self::admins($ticket), $actor, [
             'kind'    => 'reply',
             'title'   => "{$actor->name} replied on {$ticket->ticket_no}",
             'message' => $excerpt,
@@ -149,7 +149,7 @@ class Notifier
     {
         $ticket->loadMissing('assignee');
 
-        self::send($ticket->assignee ? collect([$ticket->assignee]) : self::admins(), $actor, [
+        self::send($ticket->assignee ? collect([$ticket->assignee]) : self::admins($ticket), $actor, [
             'kind'    => 'status',
             'title'   => "Ticket reopened {$ticket->ticket_no}",
             'message' => "{$actor->name} says the problem is not fixed yet: {$ticket->subject}",
@@ -180,14 +180,17 @@ class Notifier
     // ---------------------------------------------------------------------
 
     /** Admins triage new tickets: they accept them and assign an engineer. */
-    private static function admins(): Collection
+    private static function admins(Ticket $ticket): Collection
     {
-        return User::whereIn('role', ['admin', 'super_admin'])->get();
-    }
+        // The admins of the ticket's own company, plus JMS itself: super admins and JMS admins (who dispatch JMS engineers).
+        // An old admin who was never placed in any company is not JMS, so they are not included.
+        $jmsCompanies = \App\Models\Company::jmsIds();
 
-    private static function staff(): Collection
-    {
-        return User::whereIn('role', ['it_support', 'admin', 'super_admin'])->get();
+        return User::where(fn ($q) => $q->where('role', 'super_admin')
+            ->orWhere(fn ($c) => $c->where('role', 'admin')->where(fn ($w) => $w
+                ->where('company_id', $ticket->company_id)
+                ->orWhere(fn ($j) => $j->whereNull('company_id')->where('company', User::JMS_NAME))
+                ->orWhereIn('company_id', $jmsCompanies))))->get();
     }
 
     private static function send(Collection $users, User $actor, array $payload, Ticket $ticket): void

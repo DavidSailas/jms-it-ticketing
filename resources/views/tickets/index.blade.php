@@ -5,6 +5,7 @@
         $isStaff    = auth()->user()->isStaff();
         $isAdmin    = in_array($role, ['admin', 'super_admin']);
         $isEngineer = $role === 'it_support';
+        $canLog     = auth()->user()->canLogTickets();
         $tabs = ['' => 'All'];
         if ($isAdmin) $tabs['unassigned'] = 'Needs assignment';
         if (! $isEngineer) $tabs['open'] = 'Open';
@@ -54,11 +55,11 @@
                 @if ($hasFilter)
                     <a href="{{ route('tickets.index') }}" class="rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-300 hover:bg-slate-50">Clear</a>
                 @endif
-                @unless ($isEngineer)
+                @if ($canLog)
                     <a href="{{ $newUrl }}" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600">
                         <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 5v14M5 12h14"/></svg> New
                     </a>
-                @endunless
+                @endif
             </div>
         </form>
 
@@ -129,6 +130,7 @@
                                             <x-avatar :user="$t->user" size="h-8 w-8" text="text-xs" />
                                             <div class="min-w-0">
                                                 <p class="line-clamp-1 font-medium text-slate-800">{{ $t->user->name }}</p>
+                                                @if ($t->user->company) <p class="line-clamp-1 text-xs text-slate-500">{{ $t->user->company }}</p> @endif
                                             </div>
                                         </div>
                                     </td>

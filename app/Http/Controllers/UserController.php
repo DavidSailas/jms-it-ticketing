@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Company;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Support\Activity;
@@ -9,6 +10,7 @@ use App\Support\Notifier;
 use App\Support\SpreadsheetReader;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -19,14 +21,62 @@ class UserController extends Controller
 
     /**
      * Roles the signed-in person can see in the Users list and open.
-     * Admin       -> users and IT support
+     * Admin       -> users and IT support of their own company
+     * JMS admin   -> JMS's own IT Support (our engineers)
      * Super admin -> users, IT support and admins
      */
     private function visibleRoles(): array
     {
-        return auth()->user()->role === 'super_admin'
-            ? ['user', 'it_support', 'admin']
-            : ['user', 'it_support'];
+        if ($this->isSuper()) {
+            return ['user', 'it_support', 'admin'];
+        }
+
+        return auth()->user()->isJmsAdmin() ? ['it_support'] : ['user', 'it_support'];
+    }
+
+    private function isSuper(): bool
+    {
+        return auth()->user()->role === 'super_admin';
+    }
+
+    /** An admin of JMS One IT itself (not a partner's admin). */
+    private function isJmsAdmin(): bool
+    {
+        return auth()->user()->isJmsAdmin();
+    }
+
+    /**
+     * The company box offers "JMS One IT (our team)" (value "jms") for Admin and IT Support.
+     * Turn it into "no partner company" and remember the choice, so the rules below can tell it apart from an empty box.
+     */
+    private function readJmsChoice(Request $request): void
+    {
+        if ($request->input('company_id') === 'jms') {
+            $request->merge(['jms_team' => true, 'company_id' => null]);
+        }
+    }
+
+    /** Only Admin and IT Support can belong to JMS itself; partner users always belong to a partner company. */
+    private function jmsTeamRoleError(Request $request, ?string $role): ?string
+    {
+        return $request->boolean('jms_team') && ! in_array($role, ['admin', 'it_support'])
+            ? 'Partner users must belong to a partner company. Only Admin and IT Support can join the JMS One IT team.'
+            : null;
+    }
+
+    /**
+     * Every account the signed-in person may see: the visible roles, limited to their own company
+     * (super admins see all companies).
+     */
+    private function scoped()
+    {
+        return User::query()->whereIn('role', $this->visibleRoles())->inMyCompany();
+    }
+
+    /** 404/403 unless the account is one this person is allowed to manage. */
+    private function authorizeTarget(User $user, int $code = 403): void
+    {
+        abort_unless($this->scoped()->whereKey($user->id)->exists(), $code);
     }
 
     /** Roles the signed-in person may create / manage: the same ones they can see, so nobody creates an account they cannot find. */
@@ -35,23 +85,36 @@ class UserController extends Controller
         return $this->visibleRoles();
     }
 
+    /**
+     * Super admins must pick a company, unless they choose "JMS One IT (our team)". For IT Support, leaving the
+     * company empty also makes that person one of JMS's own engineers, who can be assigned to any partner's ticket.
+     */
+    private function companyRule(Request $request): array
+    {
+        return [
+            'nullable',
+            Rule::requiredIf(fn () => $this->isSuper() && $request->input('role') !== 'it_support' && ! $request->boolean('jms_team')),
+            Rule::exists('companies', 'id'),
+        ];
+    }
+
     public function index(Request $request)
     {
         $visible = $this->visibleRoles();
-        $counts  = User::whereIn('role', $visible)->selectRaw('role, count(*) as total')->groupBy('role')->pluck('total', 'role');
+        $counts  = $this->scoped()->selectRaw('role, count(*) as total')->groupBy('role')->pluck('total', 'role');
 
         $sort = in_array($request->query('sort'), ['name', 'role', 'created_at', 'tickets_count']) ? $request->query('sort') : 'name';
         $dir  = $request->query('dir') === 'desc' ? 'desc' : ($request->query('dir') === 'asc' ? 'asc' : ($sort === 'created_at' || $sort === 'tickets_count' ? 'desc' : 'asc'));
         $perPage = in_array((int) $request->query('per_page'), [10, 25, 50]) ? (int) $request->query('per_page') : 10;
 
-        $users = User::query()->withCount('tickets')
-            ->whereIn('role', $visible)
+        $users = $this->scoped()->with('companyRecord:id,name')->withCount('tickets')
+            ->when($this->isSuper() && $request->company, fn ($q, $c) => $q->where('company_id', (int) $c))
             ->when(in_array($request->role, $visible), fn ($q) => $q->where('role', $request->role))
             ->when($request->search, fn ($q, $s) => $q->where(fn ($y) =>
                 $y->where('name', 'like', "%$s%")
                   ->orWhere('username', 'like', "%$s%")
                   ->orWhere('email', 'like', "%$s%")
-                  ->orWhere('company', 'like', "%$s%")))
+                  ->orWhere('users.company', 'like', "%$s%")))
             ->orderBy($sort, $dir)->orderBy('id')
             ->paginate($perPage)->onEachSide(1)->withQueryString();
 
@@ -61,7 +124,7 @@ class UserController extends Controller
     /** Everything about one account: details, ticket summary, recent tickets and recent activity. */
     public function show(User $user)
     {
-        abort_unless(in_array($user->role, $this->visibleRoles()), 404);
+        $this->authorizeTarget($user, 404);
 
         // Which tickets belong to this person depends on what they do.
         $base = match ($user->role) {
@@ -92,8 +155,64 @@ class UserController extends Controller
         ]);
     }
 
+    /**
+     * An admin sets (or replaces) the profile photo of someone they manage: a partner's admin for their company's
+     * staff, a super admin for anyone but other super admins. Same rules as the person's own upload on /profile.
+     */
+    public function updateAvatar(Request $request, User $user)
+    {
+        $this->authorizeTarget($user);
+
+        $check = Validator::make($request->all(), [
+            'avatar' => ['required', 'file', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+        ], [
+            'avatar.required' => 'Choose a photo to upload.',
+            'avatar.file'     => 'The upload did not complete. Please try again.',
+            'avatar.mimes'    => 'The photo must be a JPG, PNG or WebP image.',
+            'avatar.max'      => 'The photo is too large. Please choose one under 2 MB.',
+            'avatar.uploaded' => 'The photo could not be uploaded. It may be larger than the server allows.',
+        ]);
+
+        // The Users page has no spot for field errors, so show the reason at the top of the page.
+        if ($check->fails()) {
+            return back()->with('error', "The photo for {$user->name} was not changed. " . $check->errors()->first('avatar'));
+        }
+
+        $path = $request->file('avatar')->store('avatars', 'local');
+
+        if ($user->avatar) {
+            Storage::disk('local')->delete($user->avatar);
+        }
+
+        $user->forceFill(['avatar' => $path])->save();
+
+        $actor = $request->user();
+        Activity::record($actor, 'avatar_updated', "Changed the profile photo of {$user->name}");
+        Activity::record($user, 'avatar_updated', "Your profile photo was changed by {$actor->name}");
+
+        return back()->with('success', "{$user->name}'s profile photo was updated.");
+    }
+
+    public function destroyAvatar(Request $request, User $user)
+    {
+        $this->authorizeTarget($user);
+
+        if ($user->avatar) {
+            Storage::disk('local')->delete($user->avatar);
+            $user->forceFill(['avatar' => null])->save();
+
+            $actor = $request->user();
+            Activity::record($actor, 'avatar_removed', "Removed the profile photo of {$user->name}");
+            Activity::record($user, 'avatar_removed', "Your profile photo was removed by {$actor->name}");
+        }
+
+        return back()->with('success', "{$user->name}'s profile photo was removed.");
+    }
+
     public function store(Request $request)
     {
+        $this->readJmsChoice($request);
+
         $request->merge([
             'username' => Str::lower(trim((string) $request->input('username'))),
             'email'    => Str::lower(trim((string) $request->input('email'))),
@@ -102,10 +221,12 @@ class UserController extends Controller
         $data = $request->validate([
             'name'     => ['required', 'string', 'min:2', 'max:100'],
             'username' => ['required', 'string', 'min:3', 'max:30', 'regex:/^[a-z0-9._-]+$/', 'unique:users,username'],
-            'company'  => ['nullable', 'string', 'max:255'],
+            'company_id' => $this->companyRule($request),
             'email'    => ['required', 'email:rfc', 'max:255', 'unique:users,email'],
             'role'     => ['required', Rule::in($this->assignable())],
         ], [
+            'company_id.required' => 'Choose the company this person belongs to, or "JMS One IT (our team)" for our own admins and engineers.',
+            'company_id.exists'   => 'Choose a company from the list.',
             'name.required'     => "Enter the person's full name.",
             'name.min'          => 'The name must be at least 2 characters.',
             'username.required' => 'Choose a username.',
@@ -119,6 +240,18 @@ class UserController extends Controller
             'role.required'     => 'Choose a role for this account.',
             'role.in'           => 'You are not allowed to assign that role.',
         ]);
+
+        if ($error = $this->jmsTeamRoleError($request, $data['role'])) {
+            return back()->withErrors(['company_id' => $error])->withInput(array_merge($request->all(), ['company_id' => 'jms']));
+        }
+
+        // A JMS admin adds people to JMS's own team; a partner's admin can only add people to their own company.
+        if ($this->isJmsAdmin()) {
+            $data['company_id'] = null;
+        } elseif (! $this->isSuper()) {
+            abort_unless(auth()->user()->company_id, 403, 'Your account is not attached to a company yet. Ask JMS to assign one.');
+            $data['company_id'] = auth()->user()->company_id;
+        }
 
         User::create($data + ['password' => Hash::make(self::DEFAULT_PASSWORD)])
             ->forceFill(['email_verified_at' => now()])->save();
@@ -177,6 +310,14 @@ class UserController extends Controller
             'admin' => 'admin', 'super_admin' => 'super_admin', 'superadmin' => 'super_admin',
         ];
 
+        // Super admins name the company on each row; a company admin always imports into their own company.
+        $companies = Company::pluck('id', 'name')->mapWithKeys(fn ($id, $name) => [Str::lower($name) => $id]);
+        $myCompany = auth()->user()->company_id;
+
+        if (! $this->isSuper() && ! $this->isJmsAdmin() && ! $myCompany) {
+            return back()->withErrors(['file' => 'Your account is not attached to a company yet. Ask JMS to assign one.']);
+        }
+
         $password = Hash::make(self::DEFAULT_PASSWORD);
         $seenEmails = [];
         $seenUsernames = [];
@@ -191,7 +332,7 @@ class UserController extends Controller
             foreach ($header as $i => $key) $row[$key] = trim((string) ($cells[$i] ?? ''));
 
             $email = Str::lower($row['email'] ?? '');
-            $role = $roleAliases[Str::of($row['role'] ?? '')->lower()->trim()->replace([' ', '-'], '_')->toString()] ?? (($row['role'] ?? '') === '' ? 'user' : null);
+            $role = $roleAliases[Str::of($row['role'] ?? '')->lower()->trim()->replace([' ', '-'], '_')->toString()] ?? (($row['role'] ?? '') === '' ? (in_array('user', $this->assignable()) ? 'user' : 'it_support') : null);
 
             if ($role === null || ! in_array($role, $this->assignable())) {
                 $errors[] = "Row {$line} ({$email}): role \"" . ($row['role'] ?? '') . '" is not valid or you are not allowed to assign it.';
@@ -209,13 +350,26 @@ class UserController extends Controller
                 }
             }
 
-            $data = ['name' => $row['name'] ?? '', 'email' => $email, 'username' => $username, 'company' => ($row['company'] ?? '') ?: null, 'role' => $role];
+            // "JMS One IT" in the company column (or an empty one for IT Support) means JMS's own team.
+            $namesJms     = \App\Models\Company::isJmsName($row['company'] ?? '');
+            $companyId    = $this->isSuper() ? ($companies[Str::lower($row['company'] ?? '')] ?? null) : $myCompany;
+            $joinsJmsTeam = $this->isJmsAdmin()
+                || ($this->isSuper() && $namesJms && in_array($role, ['admin', 'it_support']))
+                || ($this->isSuper() && $role === 'it_support' && ($row['company'] ?? '') === '');
+            if ($joinsJmsTeam) {
+                $companyId = null; // JMS's own team has no partner company
+            }
+            if (! $companyId && ! $joinsJmsTeam) {
+                $errors[] = "Row {$line} ({$email}): the company \"" . ($row['company'] ?? '') . '" does not exist. Create it under Companies first.';
+                continue;
+            }
+
+            $data = ['name' => $row['name'] ?? '', 'email' => $email, 'username' => $username, 'company_id' => $companyId, 'role' => $role];
 
             $v = Validator::make($data, [
                 'name'     => ['required', 'string', 'min:2', 'max:100'],
                 'email'    => ['required', 'email:rfc', 'max:255', 'unique:users,email'],
                 'username' => ['required', 'string', 'min:3', 'max:30', 'regex:/^[a-z0-9._-]+$/', 'unique:users,username'],
-                'company'  => ['nullable', 'string', 'max:255'],
             ], [
                 'email.unique'    => 'an account with this email already exists',
                 'username.unique' => 'that username is already taken',
@@ -252,10 +406,12 @@ class UserController extends Controller
     /** Edit an account: name, username, email, company and role. */
     public function update(Request $request, User $user)
     {
-        abort_unless(in_array($user->role, $this->assignable()), 403);
+        $this->authorizeTarget($user);
 
         // Nobody can change their own role, so they cannot lock themselves out by mistake.
         $isSelf = $user->id === auth()->id();
+
+        $this->readJmsChoice($request);
 
         $request->merge([
             'username' => Str::lower(trim((string) $request->input('username'))),
@@ -265,7 +421,7 @@ class UserController extends Controller
         $validator = Validator::make($request->all(), [
             'name'     => ['required', 'string', 'min:2', 'max:100'],
             'username' => ['required', 'string', 'min:3', 'max:30', 'regex:/^[a-z0-9._-]+$/', Rule::unique('users', 'username')->ignore($user->id)],
-            'company'  => ['nullable', 'string', 'max:255'],
+            'company_id' => $this->companyRule($request),
             'email'    => ['required', 'email:rfc', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'role'     => [$isSelf ? 'nullable' : 'required', Rule::in($this->assignable())],
         ], [
@@ -281,7 +437,16 @@ class UserController extends Controller
             'email.unique'      => 'An account with this email already exists.',
             'role.required'     => 'Choose a role for this account.',
             'role.in'           => 'You are not allowed to assign that role.',
+            'company_id.required' => 'Choose the company this person belongs to, or "JMS One IT (our team)" for our own admins and engineers.',
+            'company_id.exists'   => 'Choose a company from the list.',
         ]);
+
+        $validator->after(function ($v) use ($request, $user, $isSelf) {
+            $role = $isSelf ? $user->role : $request->input('role');
+            if (! $v->errors()->has('company_id') && ($error = $this->jmsTeamRoleError($request, $role))) {
+                $v->errors()->add('company_id', $error);
+            }
+        });
 
         if ($validator->fails()) {
             // Reopen the Edit window with what was typed and the problems found.
@@ -289,14 +454,28 @@ class UserController extends Controller
         }
 
         $data = $validator->validated();
-        $data['company'] = ($data['company'] ?? '') === '' ? null : $data['company'];
+        // Only JMS can move someone to another company.
+        if (! $this->isSuper()) {
+            unset($data['company_id']);
+        }
+
+        // An engineer must not be moved away from tickets they are still working on (they would lose sight of them).
+        if (array_key_exists('company_id', $data) && (int) ($data['company_id'] ?? 0) !== (int) $user->company_id && ($data['company_id'] ?? null)) {
+            $stranded = Ticket::withoutGlobalScopes()->where('assigned_to', $user->id)->whereIn('status', Ticket::ACTIVE)
+                ->where(fn ($q) => $q->whereNull('company_id')->orWhere('company_id', '!=', $data['company_id']))->count();
+
+            if ($stranded > 0) {
+                return back()->withErrors(['company_id' => "{$user->name} still has {$stranded} active " . Str::plural('ticket', $stranded) . ' from another company. Reassign them first, then move this person.'], 'edit')
+                    ->withInput()->with('edit_user_id', $user->id);
+            }
+        }
         if ($isSelf || empty($data['role'])) {
             unset($data['role']);
         }
 
         $user->fill($data);
-        $labels  = ['name' => 'name', 'username' => 'username', 'email' => 'email', 'company' => 'company', 'role' => 'role'];
-        $changed = collect(array_keys($user->getDirty()))->map(fn ($f) => $labels[$f] ?? $f)->values();
+        $labels  = ['name' => 'name', 'username' => 'username', 'email' => 'email', 'company_id' => 'company', 'company' => 'company', 'role' => 'role'];
+        $changed = collect(array_keys($user->getDirty()))->map(fn ($f) => $labels[$f] ?? $f)->unique()->values();
 
         if ($changed->isEmpty()) {
             return back()->with('success', "No changes were made to {$user->name}.");
@@ -313,7 +492,7 @@ class UserController extends Controller
 
     public function resetPassword(User $user)
     {
-        abort_unless(in_array($user->role, $this->assignable()), 403);
+        $this->authorizeTarget($user);
         $user->update(['password' => Hash::make(self::DEFAULT_PASSWORD)]);
         Notifier::passwordReset($user, auth()->user());
         Activity::record($user, 'password_reset', 'Your password was reset by ' . auth()->user()->name);
@@ -324,7 +503,7 @@ class UserController extends Controller
     public function destroy(User $user)
     {
         abort_if($user->id === auth()->id(), 403, 'You cannot delete your own account.');
-        abort_unless(in_array($user->role, $this->assignable()), 403);
+        $this->authorizeTarget($user);
         $user->delete();
 
         // Deleting from the details page must not send the person back to a page that no longer exists.

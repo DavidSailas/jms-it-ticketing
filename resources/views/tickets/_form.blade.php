@@ -7,13 +7,43 @@
     $icon = fn ($inner) => '<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' . $inner . '</svg>';
 
     $categories = [
+        'Network / Internet'     => ['Internet down, VPN, Wi-Fi, switches', '<path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1"/>'],
+        'Database'                 => ['Crash, slow, cannot connect, data', '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>'],
+        'CCTV / Surveillance'      => ['Cameras offline, NVR/DVR, no recording', '<path d="M3 7h13a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H3z"/><path d="M18 11l3-2v6l-3-2"/>'],
+        'Server / Infrastructure'  => ['Server down, storage, backup, power', '<rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/>'],
         'Hardware'               => ['Computer, laptop, monitor', '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>'],
         'Software'               => ['Apps, installs, errors', '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/>'],
-        'Network / Internet'     => ['Wi-Fi, VPN, no connection', '<path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1"/>'],
         'Email / Account Access' => ['Login, password, email', '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'],
         'Printer / Peripherals'  => ['Printers, scanners, mouse', '<path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><rect x="7" y="14" width="10" height="7"/>'],
         'Security'               => ['Suspicious email, virus', '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z"/><path d="M9 12l2 2 4-4"/>'],
         'Other'                  => ['Anything else', '<circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/>'],
+    ];
+
+    // Shown in the description box once a category is picked, so partners include what IT needs first time.
+    $hints = [
+        'Network / Internet'      => 'Which site or office is affected? Is the whole internet down or only some things? Since when? Have you tried restarting the router or switch?',
+        'Database'                => 'Which database or system is affected? What error do you see? When did it stop working? Was anything changed or updated recently?',
+        'CCTV / Surveillance'     => 'Which cameras, recorder (NVR/DVR) or location? Offline, blurry or not recording? Since when? Do you need footage from a certain date or time?',
+        'Server / Infrastructure' => 'Which server or storage device? What stopped working and who is affected? Any lights, alarms or error messages? Since when?',
+        'Hardware'                => 'Which device (computer, laptop, monitor)? What happens when you turn it on? Any noise, smell or error message?',
+        'Software'                => 'Which program? What exactly happens and what is the error message? When did it start?',
+        'Email / Account Access'  => 'Which account or email address? What happens when you try to sign in? Is anyone else affected?',
+        'Printer / Peripherals'   => 'Which printer or device? What happens when you print? Any error on the screen?',
+        'Security'                => 'What did you notice (strange email, virus warning, unknown login)? Did you click anything or enter a password?',
+        'Other'                   => 'Tell us what you need help with, what you already tried and when it started.',
+    ];
+
+    // What to attach, per category (shown under the file picker).
+    $attachHints = [
+        'Network / Internet'      => 'A screenshot of the error, or a photo of the router or switch lights.',
+        'Database'                => 'A screenshot of the error message, or the database log file.',
+        'CCTV / Surveillance'     => 'A photo of the recorder (NVR/DVR) screen or error, or a screenshot of the camera view.',
+        'Server / Infrastructure' => 'A photo of the server lights or screen, or the error or event log.',
+        'Hardware'                => 'A photo of the device and any message on its screen.',
+        'Software'                => 'A screenshot of the error message.',
+        'Email / Account Access'  => 'A screenshot of the sign-in error.',
+        'Printer / Peripherals'   => 'A photo of the printer display, or a screenshot of the error.',
+        'Security'                => 'A screenshot of the warning or the suspicious email.',
     ];
 
     $priorities = [
@@ -27,8 +57,8 @@
     $bad = 'border-red-400 focus:border-red-500 focus:ring-red-500';
 @endphp
 
-<form method="POST" action="{{ $isEdit ? route('tickets.details', $t) : route('tickets.store') }}" novalidate
-      x-data="{ loading: false, when: '{{ $when }}', count: {{ strlen(old('description', $t?->description ?? '')) }} }" @submit="loading = true" @pageshow.window="loading = false"
+<form method="POST" action="{{ $isEdit ? route('tickets.details', $t) : route('tickets.store') }}" enctype="multipart/form-data" novalidate
+      x-data="{ loading: false, when: '{{ $when }}', count: {{ strlen(old('description', $t?->description ?? '')) }}, cat: @js(old('category', $t?->category ?? '')), hints: @js($hints), attachHints: @js($attachHints) }" @submit="loading = true" @pageshow.window="loading = false"
       class="space-y-8">
     @csrf
     @if ($isEdit) @method('PUT') @endif
@@ -49,7 +79,7 @@
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
             @foreach ($categories as $name => [$hint, $paths])
                 <label class="cursor-pointer">
-                    <input type="radio" name="category" value="{{ $name }}" class="peer sr-only" @checked(old('category', $t?->category) === $name)>
+                    <input type="radio" name="category" value="{{ $name }}" x-model="cat" class="peer sr-only" @checked(old('category', $t?->category) === $name)>
                     <span class="flex h-full flex-col items-start gap-1.5 rounded-xl border bg-white p-3.5 shadow-sm transition hover:border-brand-400 hover:shadow peer-checked:border-brand-600 peer-checked:bg-brand-50 peer-checked:ring-2 peer-checked:ring-brand-600/30 peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500 {{ $errors->has('category') ? 'border-red-300' : 'border-slate-200' }}">
                         <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 text-brand-600">{!! $icon($paths) !!}</span>
                         <span class="text-sm font-semibold text-slate-800">{{ $name }}</span>
@@ -102,7 +132,7 @@
         <div>
             <label for="description" class="mb-1.5 block text-sm font-medium text-slate-700">Description</label>
             <textarea id="description" name="description" rows="6" maxlength="5000" @input="count = $event.target.value.length"
-                      placeholder="What happened? Any error message? When did it start? What have you already tried?"
+                      placeholder="What happened? Any error message? When did it start? What have you already tried?" :placeholder="hints[cat] || 'What happened? Any error message? When did it start? What have you already tried?'"
                       aria-invalid="{{ $errors->has('description') ? 'true' : 'false' }}"
                       class="w-full rounded-lg text-sm shadow-sm placeholder:text-slate-400 {{ $errors->has('description') ? $bad : $ok }}">{{ old('description', $t?->description) }}</textarea>
             <div class="mt-1.5 flex items-start justify-between gap-3">
@@ -127,6 +157,16 @@
                 @error('location') <p role="alert" class="mt-1.5 text-sm text-red-600">{{ $message }}</p> @enderror
             </div>
         </div>
+
+        {{-- Screenshots, error photos and log files. Added after submitting, on the ticket page. --}}
+        @unless ($isEdit)
+            <x-attachment-picker>
+                <span x-text="attachHints[cat] || 'Screenshots, photos of the error and log files help us fix it faster.'"></span>
+            </x-attachment-picker>
+            @if ($errors->any() && ! $errors->has('files') && ! $errors->has('files.*'))
+                <p class="-mt-3 text-xs text-amber-700">If you had chosen files, please choose them again: the browser cannot keep them when a form needs a correction.</p>
+            @endif
+        @endunless
     </section>
 
     {{-- Step 4: when --}}

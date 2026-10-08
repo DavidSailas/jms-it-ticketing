@@ -41,12 +41,12 @@
                 <div class="flex flex-wrap items-center gap-2">
                     <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold {{ $isSuper ? 'bg-amber-400/15 text-amber-300 ring-1 ring-inset ring-amber-400/40' : 'bg-white/15 text-white ring-1 ring-inset ring-white/25' }}">
                         <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{!! $roleIcon !!}</svg>
-                        {{ $isSuper ? 'Super Admin' : 'Admin' }}
+                        {{ $isSuper ? 'Super Admin' : $user->roleLabel() }}
                     </span>
                     <span class="text-xs text-brand-200">{{ now()->format('l, F j, Y') }}</span>
                 </div>
                 <h2 class="mt-1.5 text-xl font-bold tracking-tight sm:text-2xl">{{ $greeting }}, {{ $first }}</h2>
-                <p class="mt-0.5 max-w-2xl text-sm text-brand-100">{{ $isSuper ? 'Full control of tickets, accounts and sign-ins in one place.' : 'Accept new tickets, assign your engineers and keep every request on track.' }}</p>
+                <p class="mt-0.5 max-w-2xl text-sm text-brand-100">{{ $isSuper ? 'Full control of tickets, accounts and sign-ins in one place.' : ($user->isJmsAdmin() ? 'Accept new tickets from every partner, dispatch our JMS engineers and keep every request on track.' : 'Accept new tickets, assign your engineers and keep every request on track.') }}</p>
             </div>
             <div class="flex shrink-0 flex-wrap gap-2">
                 @if ($isSuper)

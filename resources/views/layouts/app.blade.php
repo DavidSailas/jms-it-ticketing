@@ -2,6 +2,13 @@
     $role = auth()->user()->role;
     $theme = \App\Support\RoleTheme::for($role);
     $isUser = $role === 'user';
+    // JMS's own admins have no partner company: they dispatch tickets but do not log them or brand a company.
+    $jmsNoCompany = auth()->user()->isJmsAdmin() && ! auth()->user()->company_id;
+    // Each company can have its own name, logo and colour; JMS staff and companies without a logo see the standard JMS logo.
+    $company   = auth()->user()->companyRecord;
+    $brandLogo = $company?->logoUrl() ?? asset('images/logo.png');
+    $brandName = $company?->name ?? 'JMS One IT';
+    $brandCss  = \App\Support\Branding::css($company?->brand_color);
     $all = ['user', 'it_support', 'admin', 'super_admin'];
     $staff = ['it_support', 'admin', 'super_admin'];
     // Admins get the live "Waiting for acceptance" queue (shared by the sidebar, dashboard and ticket list).
@@ -12,6 +19,8 @@
         : 0;
     $pendingConfig = $pendingFeed ? ['initial' => $pendingFeed, 'url' => route('tickets.pending-feed'), 'pollMs' => 8000] : null;
     $icons = [
+        'palette' => '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.9 1.5-1.9-.3-1 .4-2.1 1.5-2.1H17a4 4 0 0 0 4-4c0-5-4-10-9-10z"/><path d="M7.5 11.5h.01M10 7.5h.01M14.5 7.5h.01"/>',
+        'building' => '<path d="M4 21V5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v16M14 9h5a1 1 0 0 1 1 1v11M2 21h20M8 8h2M8 12h2M8 16h2"/>',
         'grid'    => '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
         'plus'    => '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
         'list'    => '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
@@ -25,8 +34,10 @@
         [$isUser ? 'New Request' : 'Dashboard', 'dashboard', $isUser ? 'dashboard|tickets.create' : 'dashboard', $all, $isUser ? 'plus' : 'grid', 'main'],
         [$isUser ? 'My Tickets' : ($role === 'it_support' ? 'My Assignments' : 'All Tickets'), 'tickets.index', 'tickets.index|tickets.show', $all, 'list', 'main'],
         ['Schedule', 'schedule.index', 'schedule.*', $staff, 'calendar', 'main'],
-        ['New Ticket', 'tickets.create', 'tickets.create', ['admin', 'super_admin'], 'plus', 'main'],
+        ['New Ticket', 'tickets.create', 'tickets.create', ['admin'], 'plus', 'main'],
+        ['Companies', 'companies.index', 'companies.*', ['super_admin'], 'building', 'manage'],
         ['Users', 'users.index', 'users.*', ['admin', 'super_admin'], 'users', 'manage'],
+        ['Branding', 'branding.edit', 'branding.*', ['admin'], 'palette', 'manage'],
         ['Reports', 'reports.index', 'reports.*', ['super_admin'], 'chart', 'manage'],
     ];
 @endphp
@@ -36,10 +47,13 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ config('app.name') }}</title>
-    <link rel="icon" href="{{ asset('images/logo.png') }}">
+    <title>{{ $brandName }}</title>
+    <link rel="icon" href="{{ $brandLogo }}">
     <link href="https://fonts.bunny.net/css?family=inter:400,500,600,700&display=swap" rel="stylesheet">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
+    @if ($brandCss)
+        <style>{!! $brandCss !!}</style>
+    @endif
 </head>
 <body class="font-sans antialiased bg-slate-50 text-slate-800" x-data="{ open: false }">
 
@@ -58,8 +72,16 @@
            class="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r {{ $theme['aside'] }} transition-transform lg:translate-x-0">
         <div class="border-b {{ $theme['divider'] }} {{ $theme['icon'] ? 'px-4 pb-4 pt-5' : 'p-4' }}">
             <div class="flex justify-center">
-                <div class="{{ $theme['logoCard'] }}"><img src="{{ asset('images/logo.png') }}" alt="JMS One IT" class="{{ $theme['icon'] ? 'h-20 w-20' : 'h-24' }} object-contain"></div>
+                @if ($company?->logo_path)
+                    {{-- A company's own logo, shown as is: the upload is already trimmed and has a transparent background. --}}
+                    <img src="{{ $brandLogo }}" alt="{{ $brandName }}" class="max-h-20 w-auto max-w-[11rem] object-contain">
+                @else
+                    <div class="{{ $theme['logoCard'] }}"><img src="{{ $brandLogo }}" alt="{{ $brandName }}" class="{{ $theme['icon'] ? 'h-20 w-20' : 'h-24' }} max-w-[12rem] object-contain"></div>
+                @endif
             </div>
+            @if ($company)
+                <p class="mt-2 truncate text-center text-sm font-bold text-brand-800">{{ $company->name }}</p>
+            @endif
             @if ($theme['icon'])
                 <div class="mt-3 flex justify-center">
                     <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wider {{ $theme['tag'] }}">
@@ -73,7 +95,7 @@
         <nav class="flex-1 space-y-1 overflow-y-auto p-4" aria-label="Main">
             @php($lastGroup = null)
             @foreach ($nav as [$label, $route, $pattern, $roles, $icon, $group])
-                @if (in_array($role, $roles))
+                @if (in_array($role, $roles) && ! ($jmsNoCompany && in_array($route, ['tickets.create', 'branding.edit'])))
                     @if ($theme['headings'] && $group !== $lastGroup)
                         <p class="px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider first:pt-0 {{ $theme['heading'] }}">{{ $theme['groups'][$group] ?? '' }}</p>
                         @php($lastGroup = $group)
@@ -131,7 +153,7 @@
             @endif
             <div class="ml-auto flex items-center gap-2 sm:gap-3">
                 {{-- Admins can log a ticket from anywhere --}}
-                @if (in_array($role, ['admin', 'super_admin']) && ! request()->routeIs('tickets.create', 'tickets.index'))
+                @if (auth()->user()->canLogTickets() && $role === 'admin' && ! request()->routeIs('tickets.create', 'tickets.index'))
                     <a href="{{ route('tickets.create') }}"
                        class="hidden items-center gap-1.5 rounded-lg bg-brand-800 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 sm:inline-flex">
                         <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>

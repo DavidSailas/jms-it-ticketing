@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Schema;
 
 class ResetTickets extends Command
@@ -24,6 +25,11 @@ class ResetTickets extends Command
         Schema::disableForeignKeyConstraints();
 
         // truncate() also resets the auto-increment counter, so the next ticket gets id 1.
+        if (Schema::hasTable('ticket_attachments')) {
+            DB::table('ticket_attachments')->truncate();
+        }
+        Storage::disk('local')->deleteDirectory('ticket-attachments');
+
         DB::table('ticket_comments')->truncate();
         DB::table('tickets')->truncate();
         DB::table('notifications')->truncate();

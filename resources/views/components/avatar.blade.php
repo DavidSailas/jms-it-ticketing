@@ -5,11 +5,11 @@
     <button type="button" data-photo="{{ $user->avatarUrl() }}" data-photo-name="{{ $user->name }}"
             aria-label="View {{ $user->name }}'s photo" title="View photo" style="cursor:zoom-in"
             class="inline-flex shrink-0 rounded-full transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2">
-        <img src="{{ $user->avatarUrl() }}" alt="" loading="lazy"
+        <img src="{{ $user->avatarUrl() }}" alt="" loading="lazy" onerror="this.onerror=null;var s=document.createElement('span');s.className=this.dataset.cls;s.textContent=this.dataset.initials;(this.closest('button')||this).replaceWith(s)" data-initials="{{ $user->initials() }}" data-cls="{{ $size }} {{ $text }} flex shrink-0 items-center justify-center rounded-full bg-brand-800 font-bold uppercase text-white ring-2 ring-white"
              {{ $attributes->merge(['class' => "$size shrink-0 rounded-full object-cover ring-2 ring-white"]) }}>
     </button>
 @elseif ($user->avatar)
-    <img src="{{ $user->avatarUrl() }}" alt="{{ $user->name }}" loading="lazy"
+    <img src="{{ $user->avatarUrl() }}" alt="{{ $user->name }}" loading="lazy" onerror="this.onerror=null;var s=document.createElement('span');s.className=this.dataset.cls;s.textContent=this.dataset.initials;(this.closest('button')||this).replaceWith(s)" data-initials="{{ $user->initials() }}" data-cls="{{ $size }} {{ $text }} flex shrink-0 items-center justify-center rounded-full bg-brand-800 font-bold uppercase text-white ring-2 ring-white"
          {{ $attributes->merge(['class' => "$size shrink-0 rounded-full object-cover ring-2 ring-white"]) }}>
 @else
     <span {{ $attributes->merge(['class' => "$size $text flex shrink-0 items-center justify-center rounded-full bg-brand-800 font-bold uppercase text-white ring-2 ring-white"]) }}

@@ -16,7 +16,7 @@ class UserEditTest extends TestCase
 
     private function payload(User $u, array $over = []): array
     {
-        return array_merge(['name' => $u->name, 'username' => $u->username, 'email' => $u->email, 'company' => $u->company, 'role' => $u->role], $over);
+        return array_merge(['name' => $u->name, 'username' => $u->username, 'email' => $u->email, 'company' => $u->company, 'company_id' => (string) ($u->company_id ?? ''), 'role' => $u->role], $over);
     }
 
     public function test_admin_can_edit_a_user_and_the_change_is_logged(): void
@@ -33,7 +33,8 @@ class UserEditTest extends TestCase
         $this->assertSame('Renamed Person', $user->name);
         $this->assertSame('renamed.person', $user->username);
         $this->assertSame('renamed@partner.com', $user->email);
-        $this->assertSame('New Co', $user->company);
+        // A company admin cannot move people to another company; only JMS can.
+        $this->assertSame('Partner Company Inc.', $user->company);
         $this->assertSame('it_support', $user->role);
         $this->assertTrue(ActivityLog::where('user_id', $user->id)->where('action', 'profile_updated')->exists());
     }

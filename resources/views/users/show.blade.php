@@ -10,7 +10,7 @@
         ];
         $card      = 'rounded-xl border border-slate-200 bg-white shadow-sm';
         $manageable = in_array($user->role, $roles);
-        $payload   = ['id' => $user->id, 'name' => $user->name, 'username' => $user->username, 'email' => $user->email, 'company' => $user->company ?? '', 'role' => $user->role, 'self' => $user->id === auth()->id(), 'action' => route('users.update', $user), 'avatar' => $user->avatarUrl(), 'initials' => $user->initials()];
+        $payload   = ['id' => $user->id, 'name' => $user->name, 'username' => $user->username, 'email' => $user->email, 'company' => $user->company ?? '', 'company_id' => (string) ($user->company_id ?? (in_array($user->role, ['admin', 'it_support']) ? 'jms' : '')), 'role' => $user->role, 'self' => $user->id === auth()->id(), 'action' => route('users.update', $user), 'avatar' => $user->avatarUrl(), 'initials' => $user->initials(), 'photo_url' => route('users.avatar.update', $user), 'photo_remove_url' => route('users.avatar.destroy', $user)];
         $dateTime  = fn ($d) => $d ? $d->format('M j, Y, g:i A') : null;
         $ticketsOf = ['it_support' => 'Assigned tickets', 'admin' => 'Tickets accepted'][$user->role] ?? 'Submitted tickets';
         $lastSeen  = $activity->first()?->created_at;
@@ -50,8 +50,31 @@
     {{-- Profile header --}}
     <section class="{{ $card }} mb-4 p-4 sm:p-5">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div class="flex min-w-0 items-center gap-4">
-                <x-avatar :user="$user" size="h-16 w-16" text="text-xl" />
+            <div class="flex min-w-0 items-center gap-4"
+                 x-data="{
+                    error: @js($errors->first('avatar')),
+                    pick(e) {
+                        const f = e.target.files[0];
+                        this.error = '';
+                        if (!f) return;
+                        if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) { this.error = 'Choose a JPG, PNG or WebP image.'; e.target.value = ''; return; }
+                        if (f.size > 2 * 1024 * 1024) { this.error = 'That photo is over 2 MB. Choose a smaller one.'; e.target.value = ''; return; }
+                        this.$refs.photoForm.submit();
+                    }
+                 }">
+                <div class="relative shrink-0">
+                    <x-avatar :user="$user" size="h-16 w-16" text="text-xl" />
+                    @if ($manageable)
+                        <form x-ref="photoForm" method="POST" action="{{ route('users.avatar.update', $user) }}" enctype="multipart/form-data">
+                            @csrf
+                            <input x-ref="photoFile" type="file" name="avatar" accept="image/png,image/jpeg,image/webp" class="sr-only" tabindex="-1" aria-label="Choose a photo for {{ $user->name }}" @change="pick($event)">
+                        </form>
+                        <button type="button" @click="$refs.photoFile.click()" title="Change photo" aria-label="Change the photo of {{ $user->name }}"
+                                class="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-brand-800 text-white shadow transition hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2">
+                            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg>
+                        </button>
+                    @endif
+                </div>
                 <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
                         <h2 class="truncate text-xl font-bold tracking-tight text-slate-900">{{ $user->name }}</h2>
@@ -70,6 +93,7 @@
                     </div>
                     <p class="mt-0.5 truncate text-sm text-slate-500">{{ $user->email }}@if ($user->company), {{ $user->company }}@endif</p>
                     <p class="mt-0.5 text-xs text-slate-400">Member since {{ $user->created_at?->format('M j, Y') }}</p>
+                    <p x-show="error" x-cloak x-text="error" role="alert" class="mt-1 text-sm font-medium text-red-600"></p>
                 </div>
             </div>
 
@@ -85,6 +109,12 @@
                         <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l3 3M14 9l2 2"/></svg>
                         Reset password
                     </button>
+                    @if ($user->avatar)
+                        <form method="POST" action="{{ route('users.avatar.destroy', $user) }}" onsubmit="return confirm('Remove this profile photo?')">
+                            @csrf @method('DELETE')
+                            <button class="inline-flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-slate-200 transition hover:bg-slate-50">Remove photo</button>
+                        </form>
+                    @endif
                     @if ($user->id !== auth()->id())
                         <button type="button" x-data x-on:click="$dispatch('open-modal', 'delete-user')"
                                 class="inline-flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-sm font-medium text-rose-700 shadow-sm ring-1 ring-rose-200 transition hover:bg-rose-50">

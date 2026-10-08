@@ -30,14 +30,18 @@ class RoleLookTest extends TestCase
         $this->actingAs($super)->get('/dashboard')->assertOk()
             ->assertSee('Super Admin Console')->assertSee('Administration')->assertSee('bg-brand-900', false)
             ->assertSee('System overview')->assertSee('Accounts by role')->assertSee('Recent system activity')
-            ->assertSee('full control of the system');
+            ->assertSee('Full control of tickets, accounts and sign-ins');
 
         // Same working pages for both.
         foreach ([$admin, $super] as $x) {
-            foreach (['/tickets', '/tickets/create', '/users', '/schedule', '/profile'] as $url) {
+            foreach (['/tickets', '/users', '/schedule', '/profile'] as $url) {
                 $this->actingAs($x)->get($url)->assertOk();
             }
         }
+
+        // Logging a ticket is for partner companies: the partner admin can, the super admin (JMS itself) cannot.
+        $this->actingAs($admin)->get('/tickets/create')->assertOk();
+        $this->actingAs($super)->get('/tickets/create')->assertForbidden();
     }
 
     public function test_other_roles_keep_the_standard_look(): void

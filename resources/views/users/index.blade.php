@@ -120,7 +120,7 @@
                         <tbody class="divide-y divide-slate-100">
                             @foreach ($users as $u)
                                 @php($manageable = in_array($u->role, $roles))
-                                @php($payload = ['id' => $u->id, 'name' => $u->name, 'username' => $u->username, 'email' => $u->email, 'company' => $u->company ?? '', 'role' => $u->role, 'self' => $u->id === auth()->id(), 'action' => route('users.update', $u), 'avatar' => $u->avatarUrl(), 'initials' => $u->initials()])
+                                @php($payload = ['id' => $u->id, 'name' => $u->name, 'username' => $u->username, 'email' => $u->email, 'company' => $u->company ?? '', 'company_id' => (string) ($u->company_id ?? (in_array($u->role, ['admin', 'it_support']) ? 'jms' : '')), 'role' => $u->role, 'self' => $u->id === auth()->id(), 'action' => route('users.update', $u), 'avatar' => $u->avatarUrl(), 'initials' => $u->initials(), 'photo_url' => route('users.avatar.update', $u), 'photo_remove_url' => route('users.avatar.destroy', $u)])
                                 <tr x-data @click="if (! $event.target.closest('a, button, form, select')) window.location = '{{ route('users.show', $u) }}'"
                                     class="group cursor-pointer transition hover:bg-brand-50/40">
                                     <td class="py-3 pl-5 pr-3">
@@ -217,7 +217,7 @@
 
     {{-- Create account modal --}}
     @php($creating = ! session('edit_user_id'))
-    <x-modal name="create-user" :show="$creating && $errors->hasAny(['name', 'email', 'username', 'company', 'role'])" maxWidth="2xl" focusable>
+    <x-modal name="create-user" :show="$creating && $errors->hasAny(['name', 'email', 'username', 'company_id', 'role'])" maxWidth="2xl" focusable>
         <form method="POST" action="{{ route('users.store') }}" novalidate
               x-data="{ loading: false, touched: {{ $creating && old('username') ? 'true' : 'false' }}, username: @js($creating ? old('username', '') : ''), role: @js($creating ? old('role', 'user') : 'user') }" @submit="loading = true">
             @csrf
@@ -248,9 +248,21 @@
                         @if ($creating) @error('name') <p role="alert" class="mt-1.5 text-sm text-red-600">{{ $message }}</p> @enderror @endif
                     </div>
                     <div>
-                        <label for="company" class="mb-1 block text-sm font-medium text-slate-700">Company <span class="font-normal text-slate-400">(optional)</span></label>
-                        <input id="company" name="company" value="{{ $creating ? old('company') : '' }}" placeholder="Partner company" class="w-full rounded-lg {{ $creating && $errors->has('company') ? $bad : $ok }}">
-                        @if ($creating) @error('company') <p role="alert" class="mt-1.5 text-sm text-red-600">{{ $message }}</p> @enderror @endif
+                        @if (auth()->user()->role === 'super_admin')
+                            <label for="company_id" class="mb-1 block text-sm font-medium text-slate-700">Company</label>
+                            <select id="company_id" name="company_id" required class="w-full rounded-lg {{ $creating && $errors->has('company_id') ? $bad : $ok }}">
+                                <option value="">Choose a company</option>
+                                <option value="jms" x-bind:disabled="role === 'user'" x-bind:hidden="role === 'user'" @selected($creating && (old('jms_team') || old('company_id') === 'jms'))>JMS One IT (our team)</option>
+                                @foreach (\App\Models\Company::orderBy('name')->get(['id', 'name']) as $c)
+                                    <option value="{{ $c->id }}" @selected($creating && ! old('jms_team') && (string) old('company_id', request('company')) === (string) $c->id)>{{ $c->name }}</option>
+                                @endforeach
+                            </select>
+                            @if ($creating) @error('company_id') <p role="alert" class="mt-1.5 text-sm text-red-600">{{ $message }}</p> @enderror @endif
+                            <p x-show="role !== 'user'" x-cloak class="mt-1.5 text-xs text-slate-500">Choose <strong>JMS One IT (our team)</strong> for our own admins and engineers. Our engineers can be assigned to any partner's tickets.</p>
+                        @else
+                            <label class="mb-1 block text-sm font-medium text-slate-700">Company</label>
+                            <p class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">{{ auth()->user()->company ?: 'Not set' }}</p>
+                        @endif
                     </div>
                     <div>
                         <label for="email" class="mb-1 block text-sm font-medium text-slate-700">Email</label>
@@ -298,7 +310,7 @@
                 <li class="flex gap-3"><span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-800 text-xs font-bold text-white">1</span>
                     <span><a href="{{ route('users.import-template') }}" class="font-medium text-brand-700 underline">Download the Excel template</a> and fill it in (or use the <a href="{{ route('users.import-template', ['format' => 'csv']) }}" class="font-medium text-brand-700 underline">CSV template</a>).</span></li>
                 <li class="flex gap-3"><span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-800 text-xs font-bold text-white">2</span>
-                    <span>Required columns: <strong>name</strong>, <strong>email</strong>. Optional: <strong>username</strong> (made from the email if empty), <strong>company</strong>, <strong>role</strong> (user, it_support{{ in_array('admin', $roles) ? ', admin' : '' }}{{ in_array('super_admin', $roles) ? ', super_admin' : '' }}; empty means user).</span></li>
+                    <span>Required columns: <strong>name</strong>, <strong>email</strong>. Optional: <strong>username</strong> (made from the email if empty), <strong>company</strong> (must match a company under Companies, or write <strong>JMS One IT</strong> for our own admins and engineers; company admins always import into their own), <strong>role</strong> (user, it_support{{ in_array('admin', $roles) ? ', admin' : '' }}{{ in_array('super_admin', $roles) ? ', super_admin' : '' }}; empty means {{ in_array('user', $roles) ? 'user' : 'it_support' }}).</span></li>
                 <li class="flex gap-3"><span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-800 text-xs font-bold text-white">3</span>
                     <span>Upload it below. Up to 500 rows. Rows with problems are skipped and listed so you can fix them.</span></li>
             </ol>
