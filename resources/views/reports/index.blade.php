@@ -134,23 +134,9 @@
             @if (collect($trend['points'])->sum(fn ($p) => $p['created'] + $p['resolved']) === 0)
                 <div class="flex h-44 items-center justify-center rounded-lg bg-slate-50 text-sm text-slate-500">No ticket activity in this period.</div>
             @else
-                @php($dense = count($trend['points']) > 16)
-                <div class="flex h-44 items-end gap-px border-b border-slate-200 pt-5 sm:gap-0.5">
-                    @foreach ($trend['points'] as $p)
-                        <div class="flex h-full min-w-0 flex-1 items-end justify-center gap-px" title="{{ $p['full'] }}: {{ $p['created'] }} submitted, {{ $p['resolved'] }} resolved">
-                            @foreach ([['created', 'bg-brand-500', 'text-brand-600'], ['resolved', 'bg-emerald-500', 'text-emerald-600']] as [$k, $bg, $tx])
-                                <div class="flex h-full w-full max-w-[1.25rem] flex-col items-center justify-end">
-                                    @if ($p[$k] && ! $dense)<span class="mb-0.5 text-[10px] font-semibold leading-none {{ $tx }}">{{ $p[$k] }}</span>@endif
-                                    <div class="w-full rounded-t {{ $bg }}" style="height: {{ $p[$k] ? max($p[$k] / $trend['max'] * 100, 4) : 0 }}%"></div>
-                                </div>
-                            @endforeach
-                        </div>
-                    @endforeach
-                </div>
-                <div class="mt-1.5 flex gap-px sm:gap-0.5">
-                    @foreach ($trend['points'] as $i => $p)
-                        <span class="min-w-0 flex-1 truncate text-center text-[10px] text-slate-500 {{ $dense && $i % 2 ? 'invisible' : '' }}">{{ $p['label'] }}</span>
-                    @endforeach
+                <div x-data="reportTrend(@js(['points' => $trend['points']]))" class="relative h-56">
+                    <canvas x-ref="canvas" role="img"
+                            aria-label="Line chart of tickets submitted and resolved by {{ $trend['unit'] }}: {{ collect($trend['points'])->sum('created') }} submitted and {{ collect($trend['points'])->sum('resolved') }} resolved in total."></canvas>
                 </div>
             @endif
         </section>

@@ -79,6 +79,22 @@ class ProfileController extends Controller
     }
 
     /**
+     * Switch ticket emails on or off. The bell inside the app always keeps working.
+     */
+    public function notifications(Request $request): RedirectResponse
+    {
+        $on = $request->boolean('email_notifications');
+        $user = $request->user();
+
+        if ($user->email_notifications !== $on) {
+            $user->forceFill(['email_notifications' => $on])->save();
+            Activity::record($user, 'profile_updated', $on ? 'Turned ticket emails on' : 'Turned ticket emails off');
+        }
+
+        return Redirect::route('profile.edit')->with('status', 'notifications-updated');
+    }
+
+    /**
      * Delete the user's account.
      */
     public function destroy(Request $request): RedirectResponse

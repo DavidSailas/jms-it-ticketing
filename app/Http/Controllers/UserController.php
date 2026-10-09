@@ -27,11 +27,7 @@ class UserController extends Controller
      */
     private function visibleRoles(): array
     {
-        if ($this->isSuper()) {
-            return ['user', 'it_support', 'admin'];
-        }
-
-        return auth()->user()->isJmsAdmin() ? ['it_support'] : ['user', 'it_support'];
+        return auth()->user()->manageableRoles();
     }
 
     private function isSuper(): bool

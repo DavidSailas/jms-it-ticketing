@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ActivityLog;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\DashboardCharts;
 use Illuminate\Http\Request;
 
 class DashboardController extends Controller
@@ -63,17 +64,7 @@ class DashboardController extends Controller
             ->whereIn('status', self::ACTIVE)->where('scheduled_for', '>=', now()->startOfDay())
             ->orderBy('scheduled_for')->orderBy('id')->take(5)->get();
 
-        $stats = [
-            'unassigned'    => Ticket::where('status', 'open')->whereNull('assigned_to')->count(),
-            'assigned'      => Ticket::where('status', 'assigned')->count(),
-            'in_progress'   => Ticket::where('status', 'in_progress')->count(),
-            'urgent'        => Ticket::whereIn('status', self::ACTIVE)->whereIn('priority', ['high', 'critical'])->count(),
-            'overdue'       => $overdueTickets->count(),
-            'resolved_week' => Ticket::whereIn('status', self::DONE)->where('resolved_at', '>=', now()->subDays(7))->count(),
-        ];
-
-        $byStatus = Ticket::selectRaw('status, count(*) as total')->groupBy('status')->pluck('total', 'status');
-        $byCategory = Ticket::selectRaw('category, count(*) as total')->groupBy('category')->orderByDesc('total')->take(5)->pluck('total', 'category');
+        $stats = DashboardCharts::kpis($overdueTickets->count());
 
         $priorityOrder = "CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END";
 
@@ -88,20 +79,6 @@ class DashboardController extends Controller
             ->selectRaw('assigned_to, count(*) as total')->groupBy('assigned_to')->pluck('total', 'assigned_to');
         $engineers = User::where('role', 'it_support')->when(! $user->canDispatchJms(), fn ($q) => $q->inMyCompany())->orderBy('name')->get()
             ->each(fn ($e) => $e->setAttribute('active_tickets', (int) ($load[$e->id] ?? 0)));
-
-        // Last 7 days: created vs resolved.
-        $from = now()->subDays(6)->startOfDay();
-        $created  = Ticket::where('created_at', '>=', $from)->get(['created_at'])->groupBy(fn ($t) => $t->created_at->format('Y-m-d'));
-        $resolved = Ticket::where('resolved_at', '>=', $from)->get(['resolved_at'])->groupBy(fn ($t) => $t->resolved_at->format('Y-m-d'));
-        $trend = collect(range(6, 0))->map(function ($i) use ($created, $resolved) {
-            $d = now()->subDays($i);
-
-            return [
-                'label'    => $d->format('D'),
-                'created'  => $created->get($d->format('Y-m-d'), collect())->count(),
-                'resolved' => $resolved->get($d->format('Y-m-d'), collect())->count(),
-            ];
-        });
 
         // Service quality.
         $finished = Ticket::whereNotNull('resolved_at')->get(['created_at', 'resolved_at', 'priority']);
@@ -129,6 +106,11 @@ class DashboardController extends Controller
             ];
         }
 
-        return view('dashboard', compact('stats', 'byStatus', 'byCategory', 'queue', 'engineers', 'trend', 'quality', 'system', 'overdueTickets', 'upcoming'));
+        // Charts: the first paint comes from here, then the page keeps them fresh through dashboard.charts.
+        $charts   = DashboardCharts::payload('7d', $stats);
+        // Super admin (JMS) decides for the partner companies, so they also get one row per partner.
+        $partners = $user->role === 'super_admin' ? DashboardCharts::partners() : null;
+
+        return view('dashboard', compact('stats', 'charts', 'partners', 'queue', 'engineers', 'quality', 'system', 'overdueTickets', 'upcoming'));
     }
 }

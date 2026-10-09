@@ -27,6 +27,7 @@
         'users'   => '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6.5 6.5 0 0 1 3.5 6"/>',
         'calendar' => '<rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/>',
         'chart'   => '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+        'chat'    => '<path d="M21 12a8 8 0 0 1-11.6 7.1L3 20.5l1.5-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h7M8.5 14h4"/>',
         'profile' => '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.5 18.5a6 6 0 0 1 11 0"/>',
     ];
     // [label, route, active-patterns, roles, icon, group]
@@ -34,12 +35,35 @@
         [$isUser ? 'New Request' : 'Dashboard', 'dashboard', $isUser ? 'dashboard|tickets.create' : 'dashboard', $all, $isUser ? 'plus' : 'grid', 'main'],
         [$isUser ? 'My Tickets' : ($role === 'it_support' ? 'My Assignments' : 'All Tickets'), 'tickets.index', 'tickets.index|tickets.show', $all, 'list', 'main'],
         ['Schedule', 'schedule.index', 'schedule.*', $staff, 'calendar', 'main'],
+        ['Saved Replies', 'canned-replies.index', 'canned-replies.*', $staff, 'chat', 'main'],
         ['New Ticket', 'tickets.create', 'tickets.create', ['admin'], 'plus', 'main'],
         ['Companies', 'companies.index', 'companies.*', ['super_admin'], 'building', 'manage'],
         ['Users', 'users.index', 'users.*', ['admin', 'super_admin'], 'users', 'manage'],
         ['Branding', 'branding.edit', 'branding.*', ['admin'], 'palette', 'manage'],
         ['Reports', 'reports.index', 'reports.*', ['super_admin'], 'chart', 'manage'],
     ];
+
+    // Ctrl+K search: "Go to" shortcuts for this role (the same pages as the sidebar, plus a few quick filters) and the
+    // "keep looking" links that open the full lists with the search already typed in.
+    $searchPages = collect($nav)
+        ->filter(fn ($n) => in_array($role, $n[3]) && ! ($jmsNoCompany && in_array($n[1], ['tickets.create', 'branding.edit'])))
+        ->map(fn ($n) => ['title' => $n[0], 'url' => route($n[1], absolute: false), 'icon' => $icons[$n[4]] ?? ''])
+        ->concat([
+            ['title' => 'Open tickets', 'url' => route('tickets.index', ['status' => 'open'], false), 'icon' => $icons['list']],
+            ['title' => 'In progress', 'url' => route('tickets.index', ['status' => 'in_progress'], false), 'icon' => $icons['list']],
+            ['title' => 'Resolved tickets', 'url' => route('tickets.index', ['status' => 'resolved'], false), 'icon' => $icons['list']],
+            ['title' => 'Notifications', 'url' => route('notifications.index', absolute: false), 'icon' => $icons['list']],
+            ['title' => 'My profile', 'url' => route('profile.edit', absolute: false), 'icon' => $icons['profile']],
+        ])
+        ->when(in_array($role, ['admin', 'super_admin']), fn ($c) => $c->push(
+            ['title' => 'Waiting for acceptance', 'url' => route('tickets.index', ['status' => 'unassigned'], false), 'icon' => $icons['list']]
+        ))
+        ->unique('url')->values()->all();
+    $searchMore = array_values(array_filter([
+        ['title' => 'Search all tickets for "{q}"', 'url' => route('tickets.index', absolute: false) . '?search='],
+        in_array($role, ['admin', 'super_admin']) ? ['title' => 'Search users for "{q}"', 'url' => route('users.index', absolute: false) . '?search='] : null,
+    ]));
+    $searchConfig = ['url' => route('search'), 'pages' => $searchPages, 'more' => $searchMore];
 @endphp
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
@@ -50,6 +74,9 @@
     <title>{{ $brandName }}</title>
     <link rel="icon" href="{{ $brandLogo }}">
     <link href="https://fonts.bunny.net/css?family=inter:400,500,600,700&display=swap" rel="stylesheet">
+    @if ($realtime = \App\Support\Realtime::clientConfig(auth()->user()))
+        <script>window.JMS_REALTIME = @json($realtime);</script>
+    @endif
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @if ($brandCss)
         <style>{!! $brandCss !!}</style>
@@ -152,6 +179,7 @@
                 </span>
             @endif
             <div class="ml-auto flex items-center gap-2 sm:gap-3">
+                @include('layouts.partials.search-trigger')
                 {{-- Admins can log a ticket from anywhere --}}
                 @if (auth()->user()->canLogTickets() && $role === 'admin' && ! request()->routeIs('tickets.create', 'tickets.index'))
                     <a href="{{ route('tickets.create') }}"
@@ -224,5 +252,6 @@
     </div>
 
     @include('layouts.partials.photo-viewer')
+    @include('layouts.partials.command-palette')
 </body>
 </html>

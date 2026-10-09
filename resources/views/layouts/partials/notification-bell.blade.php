@@ -12,7 +12,7 @@
     ];
 @endphp
 
-<div x-data="notificationBell(@js($config))" @keydown.escape.window="open = false" @pending-new.window="poll()" class="relative">
+<div x-data="notificationBell(@js($config))" @keydown.escape.window="open = false" @pending-new.window="poll()" @live-notification.window="poll()" class="relative">
 
     {{-- Bell button --}}
     <button type="button" @click="open = !open" :aria-expanded="open"

@@ -3,6 +3,8 @@
 use App\Http\Controllers\AttachmentController;
 use App\Http\Controllers\BrandingController;
 use App\Http\Controllers\CompanyController;
+use App\Http\Controllers\CannedReplyController;
+use App\Http\Controllers\DashboardChartController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PendingTicketController;
@@ -10,6 +12,8 @@ use App\Http\Controllers\ProfileAvatarController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ScheduleController;
+use App\Http\Controllers\SearchController;
+use App\Http\Controllers\TicketBoardController;
 use App\Http\Controllers\TicketController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
@@ -19,9 +23,15 @@ Route::get('/', fn () => redirect()->route('login'));
 
 Route::middleware('auth')->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::get('/dashboard/charts', DashboardChartController::class)
+        ->middleware('role:admin,super_admin')->name('dashboard.charts');
+
+    // Ctrl+K search: tickets, people and companies this person is allowed to see.
+    Route::get('/search', SearchController::class)->middleware('throttle:60,1')->name('search');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::patch('/profile/notifications', [ProfileController::class, 'notifications'])->name('profile.notifications');
 
     Route::get('/avatars/{user}', [ProfileAvatarController::class, 'show'])->name('avatar.show');
     Route::post('/profile/avatar', [ProfileAvatarController::class, 'update'])->name('profile.avatar.update');
@@ -36,9 +46,24 @@ Route::middleware('auth')->group(function () {
     Route::get('tickets/pending-feed', PendingTicketController::class)
         ->middleware('role:admin,super_admin')->name('tickets.pending-feed');
 
+    // Kanban board for staff. Declared before the tickets resource (tickets/{ticket}).
+    Route::middleware('role:it_support,admin,super_admin')->group(function () {
+        Route::get('tickets/board', [TicketBoardController::class, 'index'])->name('tickets.board');
+        Route::get('tickets/board/cards', [TicketBoardController::class, 'cards'])->name('tickets.board.cards');
+        Route::post('tickets/board/{ticket}/move', [TicketBoardController::class, 'move'])->name('tickets.board.move');
+    });
+
     // Booking calendar for staff.
     Route::get('schedule', [ScheduleController::class, 'index'])
         ->middleware('role:it_support,admin,super_admin')->name('schedule.index');
+
+    // Saved replies for staff (inserted from a ticket's reply box).
+    Route::middleware('role:it_support,admin,super_admin')->group(function () {
+        Route::get('canned-replies', [CannedReplyController::class, 'index'])->name('canned-replies.index');
+        Route::post('canned-replies', [CannedReplyController::class, 'store'])->name('canned-replies.store');
+        Route::patch('canned-replies/{cannedReply}', [CannedReplyController::class, 'update'])->name('canned-replies.update');
+        Route::delete('canned-replies/{cannedReply}', [CannedReplyController::class, 'destroy'])->name('canned-replies.destroy');
+    });
 
     Route::resource('tickets', TicketController::class)->only(['index', 'create', 'store', 'show']);
     Route::post('tickets/{ticket}/cancel', [TicketController::class, 'cancel'])->name('tickets.cancel');

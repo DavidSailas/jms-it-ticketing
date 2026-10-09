@@ -1,4 +1,7 @@
 import './bootstrap';
+import './realtime';
+import './charts';
+import './search';
 
 import Alpine from 'alpinejs';
 
@@ -111,6 +114,7 @@ Alpine.store('pending', {
         setInterval(() => this.poll(), this.pollMs);
         setInterval(() => { this.now = Date.now(); }, 5000);
         document.addEventListener('visibilitychange', () => { if (!document.hidden) this.poll(); });
+        window.addEventListener('live-ticket', () => this.poll()); // websocket nudge: fetch right now
         window.addEventListener('online', () => this.poll());
         window.addEventListener('offline', () => { this.online = false; });
     },

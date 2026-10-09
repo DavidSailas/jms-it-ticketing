@@ -39,6 +39,13 @@
         </div>
     @endif
 
+    @if ($isStaff)
+        <div class="mb-3 inline-flex rounded-lg bg-white p-1 text-sm font-medium ring-1 ring-slate-200" role="tablist" aria-label="Ticket view">
+            <span class="rounded-md bg-brand-800 px-3 py-1 text-white" aria-current="page">List</span>
+            <a href="{{ route('tickets.board') }}" class="rounded-md px-3 py-1 text-slate-600 hover:bg-slate-50">Board</a>
+        </div>
+    @endif
+
     {{-- Toolbar --}}
     <div class="mb-4 space-y-3">
         <form method="GET" class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">

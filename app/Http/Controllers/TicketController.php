@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CannedReply;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Support\Activity;
 use App\Support\Attachments;
 use App\Support\Notifier;
+use App\Support\TicketProgress;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -138,7 +140,13 @@ class TicketController extends Controller
                 ->selectRaw('assigned_to, count(*) as total')->groupBy('assigned_to')->pluck('total', 'assigned_to')
             : collect();
 
-        return view('tickets.show', compact('ticket', 'comments', 'timeline', 'engineers', 'workload'));
+        // Saved replies (staff only), with this ticket's details already filled in.
+        $cannedReplies = $user->isStaff()
+            ? CannedReply::visibleTo($user)->orderBy('title')->get()
+                ->map(fn ($r) => ['id' => $r->id, 'title' => $r->title, 'text' => $r->renderFor($ticket, $user)])->values()
+            : collect();
+
+        return view('tickets.show', compact('ticket', 'comments', 'timeline', 'engineers', 'workload', 'cannedReplies'));
     }
 
     /** Admin / Super Admin: edit what the requester submitted (details and schedule). */
@@ -305,19 +313,8 @@ class TicketController extends Controller
             'resolution.min'         => 'Please add a little more detail (at least 10 characters).',
         ]);
 
-        $old = $ticket->only(['status', 'priority', 'assigned_to']);
         $resolved = $data['status'] === 'resolved';
-
-        $ticket->update([
-            'status'      => $data['status'],
-            'resolution'  => $resolved ? $data['resolution'] : $ticket->resolution,
-            'resolved_at' => $resolved ? now() : null,
-        ]);
-        $ticket = $ticket->fresh();
-        Notifier::ticketUpdated($ticket, $user, $old);
-
-        Activity::record($user, $resolved ? 'ticket_resolved' : 'ticket_updated',
-            $resolved ? "Resolved {$ticket->ticket_no}" : "Changed {$ticket->ticket_no}: status to {$ticket->statusLabel()}", $ticket);
+        TicketProgress::apply($user, $ticket, $data['status'], $data['resolution'] ?? null);
 
         return back()->with('success', $resolved ? 'Ticket marked as resolved.' : 'Status updated.');
     }

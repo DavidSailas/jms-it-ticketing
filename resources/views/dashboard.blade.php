@@ -5,23 +5,20 @@
         $user = auth()->user();
         $svg = fn ($paths) => '<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' . $paths . '</svg>';
         $cards = [
-            ['Needs assignment', $stats['unassigned'],     route('tickets.index', ['status' => 'unassigned']),  'bg-violet-50 text-violet-600',   '<path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/>'],
-            ['Assigned',         $stats['assigned'],       route('tickets.index', ['status' => 'assigned']),    'bg-indigo-50 text-indigo-600',   '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M17 8v6M14 11h6"/>'],
-            ['In progress',      $stats['in_progress'],    route('tickets.index', ['status' => 'in_progress']), 'bg-amber-50 text-amber-600',     '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.4 2.4-2.6-.6-.6-2.6z"/>'],
-            ['High / Critical',  $stats['urgent'],         route('tickets.index'),                              'bg-orange-50 text-orange-600',   '<path d="M12 3l9 16H3L12 3z"/><path d="M12 10v4M12 17h.01"/>'],
-            ['Overdue (SLA)',    $stats['overdue'],        route('tickets.index'),                              'bg-rose-50 text-rose-600',       '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 3h6"/>'],
-            ['Resolved (7 days)', $stats['resolved_week'], route('tickets.index', ['status' => 'resolved']),    'bg-emerald-50 text-emerald-600', '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.5"/>'],
+            ['Needs assignment', $stats['unassigned'],     route('tickets.index', ['status' => 'unassigned']),  'bg-violet-50 text-violet-600',   '<path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/>', 'unassigned'],
+            ['Assigned',         $stats['assigned'],       route('tickets.index', ['status' => 'assigned']),    'bg-indigo-50 text-indigo-600',   '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M17 8v6M14 11h6"/>', 'assigned'],
+            ['In progress',      $stats['in_progress'],    route('tickets.index', ['status' => 'in_progress']), 'bg-amber-50 text-amber-600',     '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.4 2.4-2.6-.6-.6-2.6z"/>', 'in_progress'],
+            ['High / Critical',  $stats['urgent'],         route('tickets.index'),                              'bg-orange-50 text-orange-600',   '<path d="M12 3l9 16H3L12 3z"/><path d="M12 10v4M12 17h.01"/>', 'urgent'],
+            ['Overdue (SLA)',    $stats['overdue'],        route('tickets.index'),                              'bg-rose-50 text-rose-600',       '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 3h6"/>', 'overdue'],
+            ['Resolved (7 days)', $stats['resolved_week'], route('tickets.index', ['status' => 'resolved']),    'bg-emerald-50 text-emerald-600', '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.5"/>', 'resolved_week'],
         ];
-        $statusColors = ['open' => 'bg-blue-500', 'assigned' => 'bg-indigo-500', 'in_progress' => 'bg-amber-500', 'on_hold' => 'bg-slate-400', 'resolved' => 'bg-emerald-500', 'closed' => 'bg-slate-300', 'cancelled' => 'bg-rose-400'];
-        $statusMax = max(1, $byStatus->max() ?? 1);
-        $catMax    = max(1, $byCategory->max() ?? 1);
-        $trendMax  = max(1, $trend->max(fn ($d) => max($d['created'], $d['resolved'])));
         $loadMax   = max(1, $engineers->max('active_tickets') ?? 1);
         $fmt = function ($m) {
             if ($m === null) return '-';
             return $m < 60 ? round($m) . 'm' : ($m < 1440 ? round($m / 60, 1) . 'h' : round($m / 1440, 1) . 'd');
         };
         $card = 'rounded-xl border border-slate-200 bg-white shadow-sm';
+        $chartConfig = ['url' => route('dashboard.charts'), 'range' => '7d', 'initial' => $charts, 'pollMs' => 60000];
     @endphp
 
     {{-- Header: each role gets its own banner --}}
@@ -66,17 +63,15 @@
         @include('dashboard.partials.system-overview')
     @endif
 
-    {{-- KPI cards --}}
+    {{-- KPI cards: the numbers count up and stay live (see resources/js/charts.js) --}}
+    <div x-data x-init="$store.dash.init(@js($stats))" hidden></div>
     <div class="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        @foreach ($cards as [$label, $value, $href, $tone, $paths])
+        @foreach ($cards as [$label, $value, $href, $tone, $paths, $key])
             <a href="{{ $href }}" class="group flex items-center gap-3 rounded-xl border bg-white p-3 shadow-sm transition hover:border-brand-200 hover:shadow-md {{ $label === 'Overdue (SLA)' && $value > 0 ? 'border-rose-200' : 'border-slate-200' }}">
                 <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg {{ $tone }}">{!! $svg($paths) !!}</span>
                 <div class="min-w-0">
-                @if ($label === 'Needs assignment')
-                    <p class="text-2xl font-bold leading-none tracking-tight text-slate-900" x-data x-text="$store.pending.count">{{ $value }}</p>
-                @else
-                    <p class="text-2xl font-bold leading-none tracking-tight text-slate-900">{{ $value }}</p>
-                @endif
+                <p class="text-2xl font-bold leading-none tracking-tight text-slate-900 tabular-nums"
+                   x-data x-count="{{ $key === 'unassigned' ? '$store.pending.count' : '$store.dash.kpis.' . $key }}">{{ $value }}</p>
                 <p class="mt-1 truncate text-xs font-medium text-slate-500">{{ $label }}</p>
                 </div>
             </a>
@@ -165,6 +160,10 @@
                 @include('dashboard.partials.needs-attention')
             @endif
 
+            @if ($partners !== null)
+                @include('dashboard.partials.partner-overview')
+            @endif
+
             <section class="{{ $card }} overflow-hidden">
                 <div class="flex items-center justify-between border-b border-slate-100 px-4 py-3">
                     <div>
@@ -218,62 +217,75 @@
                 </ul>
             </section>
 
-            {{-- 7-day trend --}}
-            <section class="{{ $card }} p-4">
-                <div class="mb-3 flex items-center justify-between">
-                    <h3 class="font-semibold text-brand-800">Last 7 days</h3>
-                    <div class="flex items-center gap-4 text-xs text-slate-500">
-                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-brand-500"></span>Created</span>
-                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-emerald-500"></span>Resolved</span>
-                    </div>
-                </div>
-                <div class="flex h-36 items-end gap-2 border-b border-slate-200 pt-5 sm:gap-4">
-                    @foreach ($trend as $d)
-                        <div class="flex h-full flex-1 items-end justify-center gap-1">
-                            @foreach ([['created', 'bg-brand-500', 'text-brand-600'], ['resolved', 'bg-emerald-500', 'text-emerald-600']] as [$k, $bg, $tx])
-                                <div class="flex h-full w-full max-w-[1.5rem] flex-col items-center justify-end" title="{{ $d[$k] }} {{ $k }}">
-                                    @if ($d[$k])<span class="mb-0.5 text-[10px] font-semibold leading-none {{ $tx }}">{{ $d[$k] }}</span>@endif
-                                    <div class="w-full rounded-t {{ $bg }}" style="height: {{ max($d[$k] / $trendMax * 100, $d[$k] ? 6 : 0) }}%"></div>
-                                </div>
-                            @endforeach
+            {{-- Charts: drawn with Chart.js and refreshed in the background (see resources/js/charts.js) --}}
+            <div x-data="dashCharts(@js($chartConfig))" class="space-y-4">
+                <section class="{{ $card }} p-4" aria-labelledby="trend-title">
+                    <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                            <h3 id="trend-title" class="font-semibold text-brand-800">Ticket activity</h3>
+                            <p class="text-xs text-slate-500">New and resolved tickets, <span x-text="rangeLabel"></span></p>
                         </div>
-                    @endforeach
-                </div>
-                <div class="mt-1.5 flex gap-2 sm:gap-4">
-                    @foreach ($trend as $d)
-                        <span class="flex-1 text-center text-xs text-slate-500">{{ $d['label'] }}</span>
-                    @endforeach
-                </div>
-            </section>
+                        <div class="inline-flex rounded-lg bg-slate-100 p-0.5" role="group" aria-label="Time range">
+                            <template x-for="r in ranges" :key="r.key">
+                                <button type="button" @click="setRange(r.key)" :aria-pressed="range === r.key" x-text="r.label"
+                                        :class="range === r.key ? 'bg-white text-brand-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+                                        class="rounded-md px-2.5 py-1 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"></button>
+                            </template>
+                        </div>
+                    </div>
 
-            {{-- Breakdowns sit under the chart so the left and right columns finish together --}}
-            <div class="grid gap-4 md:grid-cols-2">
-                <section class="{{ $card }} p-4">
-                    <h3 class="mb-3 font-semibold text-brand-800">Tickets by status</h3>
-                    <div class="space-y-2.5">
-                        @foreach (\App\Models\Ticket::STATUSES as $s)
-                            @php($n = $byStatus[$s] ?? 0)
-                            <div>
-                                <div class="mb-1 flex justify-between text-xs"><span class="font-medium text-slate-600">{{ ucwords(str_replace('_', ' ', $s)) }}</span><span class="text-slate-500">{{ $n }}</span></div>
-                                <div class="h-2 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full {{ $statusColors[$s] }}" style="width: {{ $n / $statusMax * 100 }}%"></div></div>
-                            </div>
-                        @endforeach
+                    <div class="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-slate-500">
+                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-brand-500"></span><span class="font-semibold tabular-nums text-slate-800" x-text="data.trend.totals.created"></span> new</span>
+                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-emerald-500"></span><span class="font-semibold tabular-nums text-slate-800" x-text="data.trend.totals.resolved"></span> resolved</span>
+                        <span x-show="!trendEmpty" x-cloak title="New tickets minus resolved tickets in this period">
+                            Backlog <span class="font-semibold tabular-nums" :class="net > 0 ? 'text-rose-600' : 'text-emerald-600'" x-text="(net > 0 ? '+' : '') + net"></span>
+                        </span>
+                        <span class="ml-auto inline-flex items-center gap-1.5" title="These charts refresh automatically">
+                            <span class="h-1.5 w-1.5 rounded-full" :class="failed ? 'bg-amber-500' : 'bg-emerald-500'"></span>
+                            <span x-text="failed ? 'Offline, showing last data' : 'Updated ' + updatedLabel"></span>
+                        </span>
+                    </div>
+
+                    <div class="relative h-56">
+                        <canvas x-ref="trend" role="img" :aria-label="trendSummary"></canvas>
+                        <p x-show="trendEmpty" x-cloak class="absolute inset-0 flex items-center justify-center rounded-lg bg-white/80 text-sm text-slate-500">No ticket activity in this period.</p>
                     </div>
                 </section>
 
-                <section class="{{ $card }} p-4">
-                    <h3 class="mb-3 font-semibold text-brand-800">Top categories</h3>
-                    <div class="space-y-3">
-                        @forelse ($byCategory as $cat => $n)
-                            <div>
-                                <div class="mb-1 flex justify-between text-xs"><span class="font-medium text-slate-600">{{ $cat }}</span><span class="text-slate-500">{{ $n }}</span></div>
-                                <div class="h-2 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full bg-brand-500" style="width: {{ $n / $catMax * 100 }}%"></div></div>
+                <div class="grid gap-4 md:grid-cols-2">
+                    <section class="{{ $card }} p-4">
+                        <div class="mb-3 flex items-center justify-between">
+                            <h3 class="font-semibold text-brand-800">Tickets by status</h3>
+                            <a href="{{ route('tickets.index') }}" class="text-xs font-medium text-brand-600 hover:underline">All tickets</a>
+                        </div>
+                        <div class="flex items-center gap-4">
+                            <div class="relative h-32 w-32 shrink-0">
+                                <canvas x-ref="status" role="img" :aria-label="statusSummary"></canvas>
                             </div>
-                        @empty
-                            <p class="text-sm text-slate-500">No data yet.</p>
-                        @endforelse
-                    </div>
-                </section>
+                            <ul class="min-w-0 flex-1 space-y-0.5">
+                                <template x-for="s in data.status" :key="s.key">
+                                    <li>
+                                        <a :href="s.url" class="flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-xs transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                                            <span class="flex min-w-0 items-center gap-2">
+                                                <span class="h-2.5 w-2.5 shrink-0 rounded-full" :style="'background:' + s.color"></span>
+                                                <span class="truncate font-medium text-slate-600" x-text="s.label"></span>
+                                            </span>
+                                            <span class="font-semibold tabular-nums" :class="s.value ? 'text-slate-800' : 'text-slate-300'" x-text="s.value"></span>
+                                        </a>
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
+                    </section>
+
+                    <section class="{{ $card }} p-4">
+                        <h3 class="mb-3 font-semibold text-brand-800">Top categories</h3>
+                        <div class="relative h-44">
+                            <canvas x-ref="cats" role="img" aria-label="Bar chart of the most requested ticket categories"></canvas>
+                            <p x-show="data.categories.length === 0" x-cloak class="absolute inset-0 flex items-center justify-center text-sm text-slate-500">No tickets yet.</p>
+                        </div>
+                    </section>
+                </div>
             </div>
         </div>
 

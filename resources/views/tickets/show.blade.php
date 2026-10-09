@@ -17,6 +17,14 @@
         $card  = 'rounded-2xl border border-slate-200 bg-white shadow-sm';
     @endphp
 
+    {{-- Live update: someone else changed this ticket while it is open. Reload is manual so a half-written reply is never lost. --}}
+    <div x-data="{ stale: false }" x-show="stale" x-cloak role="status" aria-live="polite"
+         @live-ticket.window="if ($event.detail.ticket_id === {{ $ticket->id }} && $event.detail.actor_id !== {{ $me->id }}) stale = true"
+         class="mb-4 flex flex-col gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 sm:flex-row sm:items-center sm:justify-between">
+        <span>This ticket was just updated by someone else.</span>
+        <a href="{{ request()->fullUrl() }}" class="shrink-0 font-semibold text-sky-700 hover:underline">Reload to see it</a>
+    </div>
+
     <div class="grid gap-6 lg:grid-cols-3">
         <div class="space-y-6 lg:col-span-2">
 
@@ -28,7 +36,17 @@
                     <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">{{ $ticket->category }}</span>
                     @if ($ticket->supportTypeLabel()) <span class="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700">{{ $ticket->supportTypeLabel() }}</span> @endif
                     @if ($ticket->scheduledShort()) <span class="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">Scheduled {{ $ticket->scheduledShort() }}</span> @endif
-                    @if ($sla) <span class="ml-auto text-xs {{ $sla[1] }}">{{ $sla[0] }}</span> @endif
+                    @if ($sla && ($clock = $ticket->slaClock()))
+                        {{-- Live SLA countdown: ticks every second; the server text shows until the script starts. --}}
+                        <span class="ml-auto text-right" x-data="slaCountdown({{ $clock['due'] }}, {{ $clock['start'] }})" x-init="start()">
+                            <span class="block text-xs tabular-nums" :class="cls" x-text="label">{{ $sla[0] }}</span>
+                            <span class="mt-1 block h-1 w-28 overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
+                                <span class="block h-full rounded-full transition-all" :class="bar" :style="`width:${pct}%`"></span>
+                            </span>
+                        </span>
+                    @elseif ($sla)
+                        <span class="ml-auto text-xs {{ $sla[1] }}">{{ $sla[0] }}</span>
+                    @endif
                 </div>
                 <div class="flex items-start justify-between gap-3">
                     <h2 class="text-xl font-bold text-brand-800">{{ $ticket->subject }}</h2>
@@ -113,7 +131,16 @@
                 @unless ($cancelled)
                     <form method="POST" action="{{ route('tickets.comment', $ticket) }}" enctype="multipart/form-data" class="mt-5 space-y-3">
                         @csrf
-                        <textarea name="body" rows="3" placeholder="Write a reply..." class="{{ $field }}"></textarea>
+                        @if ($isStaff)
+                            <div x-data="cannedPicker(@js($cannedReplies))" class="flex flex-wrap items-center gap-2">
+                                <select x-model="picked" @change="insert()" class="rounded-lg border-slate-300 py-1.5 text-sm text-slate-600 focus:border-brand-500 focus:ring-brand-500">
+                                    <option value="">Insert a saved reply...</option>
+                                    <template x-for="r in replies" :key="r.id"><option :value="r.id" x-text="r.title"></option></template>
+                                </select>
+                                <a href="{{ route('canned-replies.index') }}" class="text-xs font-semibold text-brand-600 hover:underline">Manage saved replies</a>
+                            </div>
+                        @endif
+                        <textarea name="body" id="reply-body" rows="3" placeholder="Write a reply..." class="{{ $field }}"></textarea>
                         @error('body') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
                         <x-attachment-picker label="Attach a screenshot or log file">Add a screenshot, photo of the error or log file to your reply.</x-attachment-picker>
                         <div class="flex items-center justify-between">
@@ -411,4 +438,48 @@
             @endif
         </div>
     </div>
+    <script>
+        document.addEventListener('alpine:init', () => {
+            /** Live SLA countdown: due/start are Unix milliseconds. */
+            Alpine.data('slaCountdown', (due, start) => ({
+                label: '', cls: 'text-slate-500', bar: 'bg-emerald-500', pct: 0, timer: null,
+                start() { this.tick(); this.timer = setInterval(() => this.tick(), 1000); },
+                fmt(ms) {
+                    const t = Math.floor(Math.abs(ms) / 1000);
+                    const d = Math.floor(t / 86400), h = Math.floor(t % 86400 / 3600), m = Math.floor(t % 3600 / 60), s = t % 60;
+                    const p = (n) => String(n).padStart(2, '0');
+                    return d > 0 ? `${d}d ${h}h ${p(m)}m` : (h > 0 ? `${h}h ${p(m)}m ${p(s)}s` : `${m}m ${p(s)}s`);
+                },
+                tick() {
+                    const left = due - Date.now();
+                    const total = Math.max(1, due - start);
+                    this.pct = Math.min(100, Math.max(0, Math.round((total - left) / total * 100)));
+                    if (left < 0) {
+                        this.label = 'Overdue by ' + this.fmt(left);
+                        this.cls = 'text-red-600 font-semibold'; this.bar = 'bg-red-500'; this.pct = 100;
+                    } else {
+                        this.label = 'Due in ' + this.fmt(left);
+                        const hot = left < 2 * 3600 * 1000;
+                        this.cls = hot ? 'text-orange-600 font-medium' : 'text-slate-500';
+                        this.bar = hot ? 'bg-orange-500' : 'bg-emerald-500';
+                    }
+                },
+            }));
+
+            /** Drops a saved reply into the reply box (adds to what is already typed, never overwrites it). */
+            Alpine.data('cannedPicker', (replies) => ({
+                replies, picked: '',
+                insert() {
+                    const r = this.replies.find((x) => String(x.id) === String(this.picked));
+                    const box = document.getElementById('reply-body');
+                    if (r && box) {
+                        box.value = box.value.trim() === '' ? r.text : box.value.replace(/\s+$/, '') + '\n\n' + r.text;
+                        box.focus();
+                        box.setSelectionRange(box.value.length, box.value.length);
+                    }
+                    this.picked = '';
+                },
+            }));
+        });
+    </script>
 </x-app-layout>

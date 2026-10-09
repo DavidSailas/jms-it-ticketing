@@ -44,6 +44,7 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'email_notifications' => 'boolean',
             'password' => 'hashed',
         ];
     }
@@ -64,6 +65,16 @@ class User extends Authenticatable
     public function companyRecord()
     {
         return $this->belongsTo(Company::class, 'company_id');
+    }
+
+    /** Roles this person may see and manage on the Users page (and find with the search). */
+    public function manageableRoles(): array
+    {
+        if ($this->role === 'super_admin') {
+            return ['user', 'it_support', 'admin'];
+        }
+
+        return $this->isJmsAdmin() ? ['it_support'] : ['user', 'it_support'];
     }
 
     /**

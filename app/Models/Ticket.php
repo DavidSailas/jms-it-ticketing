@@ -165,6 +165,25 @@ class Ticket extends Model
         return ["Due in {$span}", now()->diffInHours($due, false) < 2 ? 'text-orange-600 font-medium' : 'text-slate-500'];
     }
 
+    /**
+     * Data for the live countdown on the ticket page, or null when no clock is running (finished, or booked for later).
+     * @return array{due:int,start:int}|null  Unix timestamps in milliseconds.
+     */
+    public function slaClock(): ?array
+    {
+        if (! in_array($this->status, ['open', 'assigned', 'in_progress'])) {
+            return null;
+        }
+
+        if ($this->scheduled_for && $this->scheduled_for->isFuture()) {
+            return null;
+        }
+
+        $due = $this->slaDueAt();
+
+        return ['due' => $due->getTimestampMs(), 'start' => $due->copy()->subHours(self::SLA_HOURS[$this->priority] ?? 24)->getTimestampMs()];
+    }
+
     // ---- Google Maps ---------------------------------------------------------
 
     public function mapsUrl(): ?string

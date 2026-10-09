@@ -2,11 +2,13 @@
 
 namespace App\Support;
 
+use App\Mail\TicketActivityMail;
 use App\Models\Ticket;
 use App\Models\TicketComment;
 use App\Models\User;
 use App\Notifications\TicketActivity;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 
@@ -18,6 +20,8 @@ class Notifier
 {
     public static function ticketCreated(Ticket $ticket, User $actor): void
     {
+        Realtime::ticketChanged($ticket, $actor, 'created');
+
         $urgent = in_array($ticket->priority, ['high', 'critical']);
 
         self::send(self::admins($ticket), $actor, [
@@ -30,6 +34,8 @@ class Notifier
 
     public static function ticketCancelled(Ticket $ticket, User $actor): void
     {
+        Realtime::ticketChanged($ticket, $actor, 'cancelled');
+
         self::send(self::admins($ticket), $actor, [
             'kind'    => 'status',
             'title'   => "Ticket cancelled {$ticket->ticket_no}",
@@ -40,6 +46,9 @@ class Notifier
     /** $old = status / priority / assigned_to before the update. */
     public static function ticketUpdated(Ticket $ticket, User $actor, array $old): void
     {
+        // The engineer who just lost the ticket also needs to see it disappear.
+        Realtime::ticketChanged($ticket, $actor, 'updated', false, array_filter([$old['assigned_to'] ?? null]));
+
         $ticket->loadMissing('user', 'assignee');
         $newlyAssigned = $ticket->assigned_to && (int) $ticket->assigned_to !== (int) $old['assigned_to'];
 
@@ -88,6 +97,8 @@ class Notifier
 
     public static function commentAdded(Ticket $ticket, TicketComment $comment, User $actor): void
     {
+        Realtime::ticketChanged($ticket, $actor, 'comment', (bool) $comment->is_internal);
+
         $ticket->loadMissing('user', 'assignee');
         $excerpt = Str::limit($comment->body, 90);
 
@@ -123,17 +134,22 @@ class Notifier
 
     public static function ticketRescheduled(Ticket $ticket, User $actor): void
     {
+        Realtime::ticketChanged($ticket, $actor, 'updated');
+
         $ticket->loadMissing(['user', 'assignee']);
 
         self::send(collect([$ticket->user, $ticket->assignee]), $actor, [
             'kind'    => 'status',
             'title'   => "Schedule updated {$ticket->ticket_no}",
             'message' => $ticket->whenLabel() . ' - ' . $ticket->subject,
+            'email'   => true,
         ], $ticket);
     }
 
     public static function supportTypeSet(Ticket $ticket, User $actor): void
     {
+        Realtime::ticketChanged($ticket, $actor, 'updated');
+
         $ticket->loadMissing('user');
 
         self::send(collect([$ticket->user]), $actor, [
@@ -142,28 +158,35 @@ class Notifier
             'message' => $ticket->support_type === 'onsite'
                 ? 'An engineer will visit you on-site. Please keep your address and phone number up to date.'
                 : 'Your ticket will be handled remotely. An engineer may contact you to start a session.',
+            'email'   => true,
         ], $ticket);
     }
 
     public static function ticketReopened(Ticket $ticket, User $actor): void
     {
+        Realtime::ticketChanged($ticket, $actor, 'updated');
+
         $ticket->loadMissing('assignee');
 
         self::send($ticket->assignee ? collect([$ticket->assignee]) : self::admins($ticket), $actor, [
             'kind'    => 'status',
             'title'   => "Ticket reopened {$ticket->ticket_no}",
             'message' => "{$actor->name} says the problem is not fixed yet: {$ticket->subject}",
+            'email'   => true,
         ], $ticket);
     }
 
     public static function ticketFeedback(Ticket $ticket, User $actor): void
     {
+        Realtime::ticketChanged($ticket, $actor, 'updated');
+
         $ticket->loadMissing('assignee');
 
         self::send(collect([$ticket->assignee]), $actor, [
             'kind'    => 'resolved',
             'title'   => "{$ticket->ticket_no} confirmed and rated",
             'message' => "{$actor->name} rated the support {$ticket->rating}/5.",
+            'email'   => false,
         ], $ticket);
     }
 
@@ -212,5 +235,29 @@ class Notifier
 
         // A notification problem must never break the action the person just did.
         rescue(fn () => Notification::send($recipients, new TicketActivity($payload)));
+        Realtime::notified($recipients);
+
+        self::email($recipients, $payload);
+    }
+
+    /**
+     * The email twin of the bell notification. Queued, one per person, and skipped for people who switched ticket
+     * emails off in My Profile. Security notices (like a password reset) are always sent. Internal notes never are.
+     */
+    private static function email(Collection $recipients, array $payload): void
+    {
+        $kind = $payload['kind'] ?? '';
+
+        if (! ($payload['email'] ?? in_array($kind, TicketActivityMail::KINDS, true))) {
+            return;
+        }
+
+        foreach ($recipients as $user) {
+            $optedIn = $kind === 'security' || ($user->email_notifications ?? true);
+
+            if ($user->email && $optedIn) {
+                rescue(fn () => Mail::to($user)->queue(new TicketActivityMail($user, $payload)));
+            }
+        }
     }
 }
