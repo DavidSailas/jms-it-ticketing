@@ -130,13 +130,14 @@
                                     <span class="absolute inset-y-2.5 left-0 w-1 rounded-r-full {{ $t->isFinished() ? 'bg-slate-200' : ($accent[$t->priority] ?? 'bg-slate-300') }}" aria-hidden="true"></span>
                                     <a href="{{ route('tickets.show', $t) }}" class="line-clamp-1 font-semibold text-slate-900 group-hover:text-brand-700">{{ $t->subject }}</a>
                                     <p class="mt-0.5 font-mono text-[11px] text-slate-400">{{ $t->ticket_no }}</p>
+                                    <x-jms-requested-badge :ticket="$t" class="mt-1" />
                                 </td>
                                 @if ($isStaff)
                                     <td class="px-3 py-3">
                                         <div class="flex items-center gap-2.5">
                                             <x-avatar :user="$t->user" size="h-8 w-8" text="text-xs" />
                                             <div class="min-w-0">
-                                                <p class="line-clamp-1 font-medium text-slate-800">{{ $t->user->name }}</p>
+                                                <p class="flex items-center gap-1.5 font-medium text-slate-800"><span class="line-clamp-1">{{ $t->user->name }}</span><x-admin-badge :user="$t->user" /></p>
                                                 @if ($t->user->company) <p class="line-clamp-1 text-xs text-slate-500">{{ $t->user->company }}</p> @endif
                                             </div>
                                         </div>
@@ -198,7 +199,7 @@
                     <p class="mt-0.5 font-mono text-xs text-slate-400">{{ $t->ticket_no }}</p>
                     <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                         <x-ticket-pill :ticket="$t" type="priority" />
-                        @if ($isStaff) <span>{{ $t->user->name }}</span> @endif
+                        @if ($isStaff) <span>{{ $t->user->name }}</span><x-admin-badge :user="$t->user" /> @endif <x-jms-requested-badge :ticket="$t" />
                         <span>&middot; {{ $t->assignee?->name ?? 'Unassigned' }}</span>
                         <span>&middot; {{ $t->created_at->diffForHumans() }}</span>
                     </div>

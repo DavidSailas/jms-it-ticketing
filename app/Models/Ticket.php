@@ -29,7 +29,7 @@ class Ticket extends Model
     public const SLA_HOURS = ['critical' => 4, 'high' => 8, 'medium' => 24, 'low' => 72];
 
     protected $guarded = [];
-    protected $casts = ['resolved_at' => 'datetime', 'accepted_at' => 'datetime', 'scheduled_for' => 'datetime'];
+    protected $casts = ['resolved_at' => 'datetime', 'accepted_at' => 'datetime', 'scheduled_for' => 'datetime', 'jms_requested_at' => 'datetime'];
 
     protected static function booted(): void
     {
@@ -54,23 +54,44 @@ class Ticket extends Model
     public function activity() { return $this->hasMany(ActivityLog::class); }
 
     /**
-     * The engineers an admin may hand the ticket to: the partner company's own IT Support, plus JMS's own
-     * engineers (IT Support with no company). Super admins, JMS admins and the partner's admin can all pick
-     * from both lists. JMS engineers are listed first. Partner users never see this list.
+     * The engineers this person may hand the ticket to. Each side only assigns its OWN people:
+     *  - JMS (super admins and JMS admins) can only assign JMS's own engineers (IT Support with no company).
+     *    A partner company's IT team belongs to that company and is never assigned by JMS.
+     *  - A partner company's admin can only assign their own company's IT Support.
+     * Partner users never see this list.
      */
     public function assignableEngineers(User $viewer)
     {
-        return User::where('role', 'it_support')
-            ->where(fn ($q) => $q->where('company_id', $this->company_id)->orWhereNull('company_id'))
-            ->orderByRaw('CASE WHEN company_id IS NULL THEN 0 ELSE 1 END')
-            ->orderBy('name')
-            ->get();
+        $query = User::where('role', 'it_support');
+
+        if ($viewer->canDispatchJms()) {
+            return User::jmsEngineers()->orderBy('name')->get();
+        }
+
+        // A ticket with no company must never fall through to "company_id IS NULL" (that would be the JMS team).
+        if (! $this->company_id) {
+            return collect();
+        }
+
+        return $query->where('company_id', $this->company_id)->orderBy('name')->get();
     }
 
-    /** Kept for the views: partner admins may now reassign JMS engineers too, so a ticket is never locked. */
+    /** True once a JMS engineer has the ticket: from then on only JMS can reassign it (the partner can still reply). */
     public function isLockedToJms(User $viewer): bool
     {
-        return false;
+        if ($viewer->canDispatchJms() || ! $this->assigned_to) {
+            return false;
+        }
+
+        $this->loadMissing('assignee');
+
+        return (bool) $this->assignee?->isJmsEngineer();
+    }
+
+    /** The company asked JMS support to take over, and JMS has not accepted it yet. */
+    public function isAskingForJms(): bool
+    {
+        return $this->jms_requested_at !== null && $this->assigned_to === null && ! $this->isFinished();
     }
 
     /** Submitted, but no admin has accepted it or assigned an engineer yet. */

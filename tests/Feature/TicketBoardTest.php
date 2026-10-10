@@ -129,4 +129,16 @@ class TicketBoardTest extends TestCase
         $this->actingAs($this->engineer)->get(route('tickets.index'))->assertOk()->assertSee(route('tickets.board'));
         $this->actingAs($this->partner)->get(route('tickets.index'))->assertOk()->assertDontSee(route('tickets.board'));
     }
+
+    public function test_requests_from_a_partner_admin_are_marked(): void
+    {
+        $acmeAdmin = User::factory()->create(['role' => 'admin', 'company_id' => $this->acme->id]);
+        $this->ticket(['user_id' => $acmeAdmin->id, 'subject' => 'Boss request']);
+
+        $this->actingAs($this->super)->get(route('tickets.index'))->assertOk()->assertSee('Company admin');
+        $this->ticket(['subject' => 'Ordinary request']); // from a regular partner user: not marked
+
+        $cards = $this->actingAs($this->super)->getJson(route('tickets.board.cards'))->json('cards');
+        $this->assertSame([true, false], collect($cards)->sortByDesc(fn ($c) => $c['subject'] === 'Boss request')->pluck('fromAdmin')->values()->all());
+    }
 }

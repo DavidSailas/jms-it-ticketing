@@ -41,7 +41,7 @@
                                 </div>
                                 <a :href="c.url" class="mt-1.5 block text-sm font-medium leading-snug text-slate-800 hover:text-brand-700" x-text="c.subject"></a>
                                 <p class="mt-1 truncate text-xs text-slate-500" x-show="c.company" x-text="c.company"></p>
-                                <p class="truncate text-xs text-slate-400" x-text="c.requester ? 'by ' + c.requester : ''"></p>
+                                <p class="flex items-center gap-1.5 text-xs text-slate-400"><span class="truncate" x-text="c.requester ? 'by ' + c.requester : ''"></span><span x-show="c.askJms" class="shrink-0 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-300" title="The company asked JMS support to take over this ticket">JMS requested</span><span x-show="c.fromAdmin" class="shrink-0 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 ring-1 ring-inset ring-violet-200" title="Requested by the company's admin">Company admin</span></p>
                                 <div class="mt-2 flex items-center justify-between gap-2 text-xs">
                                     <span class="truncate text-slate-600" x-text="c.assignee || 'Unassigned'" :class="c.assignee ? '' : 'font-semibold text-violet-600'"></span>
                                     <span x-show="c.due" class="shrink-0 tabular-nums" :class="sla(c).cls" x-text="sla(c).text"></span>

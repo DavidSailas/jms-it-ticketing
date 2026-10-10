@@ -103,6 +103,8 @@ class TicketBoardController extends Controller
             'priority'  => $t->priority,
             'company'   => $t->company?->name,
             'requester' => $t->user?->name,
+            'askJms'    => $t->isAskingForJms(),
+            'fromAdmin' => $t->user?->role === 'admin' && $t->user?->company_id !== null,
             'assignee'  => $t->assignee?->name,
             'url'       => route('tickets.show', $t),
             'due'       => $t->slaClock()['due'] ?? null,

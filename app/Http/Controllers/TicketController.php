@@ -223,6 +223,7 @@ class TicketController extends Controller
             if ($data['status'] === 'open') $data['status'] = 'assigned';
             $data['accepted_by'] = $ticket->accepted_by ?? $request->user()->id;
             $data['accepted_at'] = $ticket->accepted_at ?? now();
+            $data['jms_requested_at'] = null;
         } elseif ($data['status'] === 'assigned') {
             $data['status'] = 'open';
         }
@@ -247,6 +248,19 @@ class TicketController extends Controller
     }
 
     /** Admin: accept the ticket and hand it to an IT engineer (on-site or remote). */
+    /** JMS engineer cards (with live workload) for the quick-assign panel. Only people who can dispatch JMS see them. */
+    public function engineerPicker(Request $request)
+    {
+        abort_unless($request->user()->canDispatchJms(), 403);
+
+        return view('tickets._engineer-cards', [
+            'engineers' => User::jmsEngineers()->orderBy('name')->get(),
+            'workload'  => Ticket::whereIn('status', ['assigned', 'in_progress', 'on_hold'])->whereNotNull('assigned_to')
+                ->selectRaw('assigned_to, count(*) as total')->groupBy('assigned_to')->pluck('total', 'assigned_to'),
+            'xmodel'    => 'engineer',
+        ]);
+    }
+
     public function assign(Request $request, Ticket $ticket)
     {
         if ($ticket->isLockedToJms($request->user())) {
@@ -278,6 +292,7 @@ class TicketController extends Controller
             'status'       => in_array($ticket->status, ['open', 'assigned']) ? 'assigned' : $ticket->status,
             'accepted_by'  => $ticket->accepted_by ?? $actor->id,
             'accepted_at'  => $ticket->accepted_at ?? now(),
+            'jms_requested_at' => null, // somebody picked it up, so "JMS requested" is answered
         ]);
 
         if (! empty($data['note'])) {
@@ -290,6 +305,48 @@ class TicketController extends Controller
             "Accepted {$ticket->ticket_no} and assigned it to {$ticket->assignee->name} ({$ticket->supportTypeLabel()})", $ticket);
 
         return back()->with('success', "Ticket accepted and assigned to {$ticket->assignee->name}.");
+    }
+
+    /**
+     * A partner company's admin (or the company's own engineer holding the ticket) asks JMS support to take over a
+     * ticket they cannot solve. This does NOT assign a JMS engineer: the ticket goes back to "waiting for acceptance"
+     * flagged "JMS requested", and a JMS admin or super admin accepts it and chooses the engineer.
+     */
+    public function requestJms(Request $request, Ticket $ticket)
+    {
+        $user = $request->user();
+        $this->authorizeView($user, $ticket);
+
+        abort_unless($user->company_id && ! $user->canDispatchJms()
+            && ($user->role === 'admin' || ($user->role === 'it_support' && (int) $ticket->assigned_to === (int) $user->id)), 403);
+
+        if ($ticket->isFinished()) {
+            return back()->with('error', 'This ticket is already ' . strtolower($ticket->statusLabel()) . '.');
+        }
+        if ($ticket->isLockedToJms($user)) {
+            return back()->with('error', 'JMS support is already handling this ticket.');
+        }
+        if ($ticket->isAskingForJms()) {
+            return back()->with('error', 'JMS support has already been asked to take over this ticket.');
+        }
+
+        $data = $request->validate([
+            'jms_note' => ['required', 'string', 'min:10', 'max:1000'],
+        ], [
+            'jms_note.required' => 'Tell JMS what you already tried, so they can start faster.',
+            'jms_note.min'      => 'Please add a little more detail (at least 10 characters).',
+        ]);
+
+        $previous = $ticket->assigned_to;
+
+        $ticket->update(['assigned_to' => null, 'status' => 'open', 'jms_requested_at' => now()]);
+        $ticket->comments()->create(['user_id' => $user->id, 'body' => 'Support requested from JMS: ' . trim($data['jms_note']), 'is_internal' => false]);
+
+        $ticket = $ticket->fresh();
+        Notifier::jmsRequested($ticket, $user, $previous);
+        Activity::record($user, 'ticket_updated', "Asked JMS support to take over {$ticket->ticket_no}", $ticket);
+
+        return back()->with('success', 'JMS support has been asked to take over this ticket. They will assign an engineer.');
     }
 
     /** Engineer: start, pause or finish the work. */

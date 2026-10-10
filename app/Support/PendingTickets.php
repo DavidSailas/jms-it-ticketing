@@ -75,6 +75,7 @@ class PendingTickets
             // The longer a ticket sits unaccepted, the louder it gets.
             'waiting_class'    => $minutes >= 120 ? 'text-red-600 font-semibold'
                                 : ($minutes >= 30 ? 'text-amber-600 font-medium' : 'text-slate-500'),
+            'jms_requested'    => $t->isAskingForJms(),
             'url'              => route('tickets.show', $t),
             'assign_url'       => route('tickets.show', $t) . '#assign',
         ];

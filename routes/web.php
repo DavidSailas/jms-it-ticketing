@@ -16,6 +16,7 @@ use App\Http\Controllers\SearchController;
 use App\Http\Controllers\TicketBoardController;
 use App\Http\Controllers\TicketController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\WorkflowController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn () => redirect()->route('login'));
@@ -65,6 +66,9 @@ Route::middleware('auth')->group(function () {
         Route::delete('canned-replies/{cannedReply}', [CannedReplyController::class, 'destroy'])->name('canned-replies.destroy');
     });
 
+    // Quick-assign panel on the company page: the JMS engineer cards, loaded when the panel opens.
+    Route::get('tickets/engineer-picker', [TicketController::class, 'engineerPicker'])
+        ->middleware('role:admin,super_admin')->name('tickets.engineer-picker');
     Route::resource('tickets', TicketController::class)->only(['index', 'create', 'store', 'show']);
     Route::post('tickets/{ticket}/cancel', [TicketController::class, 'cancel'])->name('tickets.cancel');
     Route::post('tickets/{ticket}/feedback', [TicketController::class, 'feedback'])->name('tickets.feedback');
@@ -84,6 +88,8 @@ Route::middleware('auth')->group(function () {
         ->middleware('role:it_support,admin,super_admin')->name('tickets.support-type');
 
     // Admin triage: accept the ticket and assign an engineer.
+    Route::post('tickets/{ticket}/request-jms', [TicketController::class, 'requestJms'])
+        ->middleware('role:it_support,admin')->name('tickets.request-jms');
     Route::post('tickets/{ticket}/assign', [TicketController::class, 'assign'])
         ->middleware('role:admin,super_admin')->name('tickets.assign');
     Route::get('tickets/{ticket}/edit', [TicketController::class, 'edit'])
@@ -95,6 +101,8 @@ Route::middleware('auth')->group(function () {
 
     // Reports and company management are for super admins (JMS) only.
     Route::middleware('role:super_admin')->group(function () {
+        Route::get('workflow', [WorkflowController::class, 'index'])->name('workflow.index');
+        Route::get('workflow/pdf', [WorkflowController::class, 'pdf'])->name('workflow.pdf');
         Route::get('companies', [CompanyController::class, 'index'])->name('companies.index');
         Route::post('companies', [CompanyController::class, 'store'])->name('companies.store');
         Route::get('companies/{company}', [CompanyController::class, 'show'])->name('companies.show');

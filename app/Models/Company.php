@@ -40,6 +40,12 @@ class Company extends Model
             ->pluck('id')->map(fn ($id) => (int) $id)->all();
     }
 
+    /** True when this record is JMS One IT itself (our own company), not a partner. */
+    public function isJms(): bool
+    {
+        return static::isJmsName($this->name);
+    }
+
     /** Public address of the uploaded logo, or null to use the standard JMS logo. */
     public function logoUrl(): ?string
     {

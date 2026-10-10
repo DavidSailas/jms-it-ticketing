@@ -117,7 +117,32 @@ class User extends Authenticatable
      */
     public function isJmsEngineer(): bool
     {
-        return $this->role === 'it_support' && ! $this->company_id;
+        // JMS's own engineers live in two places: no company at all, or attached to the "JMS One IT" company record.
+        return $this->role === 'it_support'
+            && (! $this->company_id || Company::isJmsName($this->companyRecord?->name));
+    }
+
+    /** JMS's own IT Support, wherever the account was filed (see isJmsEngineer). */
+    public function scopeJmsEngineers($query)
+    {
+        return $query->where('role', 'it_support')
+            ->where(fn ($w) => $w->whereNull('company_id')->orWhereIn('company_id', Company::jmsIds()));
+    }
+
+    /** Everyone who works for JMS itself: super admins, JMS admins and JMS engineers. Never a partner's people. */
+    public function scopeJmsTeam($query)
+    {
+        return $query->where(fn ($w) => $w
+            ->where('role', 'super_admin')
+            ->orWhereIn('company_id', Company::jmsIds())
+            ->orWhere(fn ($j) => $j->whereNull('company_id')->where(fn ($k) => $k
+                ->where('role', 'it_support')
+                ->orWhere(fn ($a) => $a->where('role', 'admin')->where('company', self::JMS_NAME)))));
+    }
+
+    public function assignedTickets()
+    {
+        return $this->hasMany(Ticket::class, 'assigned_to');
     }
 
     /**

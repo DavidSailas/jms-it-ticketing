@@ -47,3 +47,83 @@ input[type="password"]::-ms-clear { display: none; }
     -webkit-mask-image: radial-gradient(ellipse 42% 52% at 50% 50%, transparent 50%, #000 100%);
     mask-image: radial-gradient(ellipse 42% 52% at 50% 50%, transparent 50%, #000 100%);
 }
+
+/* ---------------------------------------------------------------------------
+   Scrollbars
+   One slim, rounded style everywhere: the page, the sidebar, dropdowns, tables
+   and tab strips. The track is invisible; the thumb is a soft slate pill that
+   turns brand blue on hover and a deeper blue while dragging.
+   The sidebar on a dark role theme gets a light thumb instead (see --sb-* below).
+   --------------------------------------------------------------------------- */
+:root {
+    --sb-size: 10px;
+    --sb-thumb: 203 213 225;        /* slate-300 */
+    --sb-thumb-hover: var(--brand-500);
+    --sb-thumb-active: var(--brand-600);
+    --sb-track: transparent;
+}
+
+/* Dark sidebar (Super Admin and other themed consoles). */
+aside.bg-brand-900 {
+    --sb-thumb: 255 255 255 / 0.22;
+    --sb-thumb-hover: 255 255 255 / 0.42;
+    --sb-thumb-active: 255 255 255 / 0.6;
+}
+
+/* Chrome, Edge, Brave, Safari */
+::-webkit-scrollbar {
+    width: var(--sb-size);
+    height: var(--sb-size);
+}
+::-webkit-scrollbar-track {
+    background: var(--sb-track);
+}
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    /* The transparent border insets the visible pill, so it looks slim but is easy to grab. */
+    background-color: rgb(var(--sb-thumb));
+    background-clip: padding-box;
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    min-height: 2.5rem;
+    min-width: 2.5rem;
+}
+::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(var(--sb-thumb-hover));
+}
+::-webkit-scrollbar-thumb:active {
+    background-color: rgb(var(--sb-thumb-active));
+}
+
+/* The whole page scrolls on a faint rail, so it reads as a scrollbar rather than a stray line. */
+html::-webkit-scrollbar {
+    width: 12px;
+}
+html::-webkit-scrollbar-track {
+    background: rgb(241 245 249 / 0.7);   /* slate-100 */
+    border-left: 1px solid rgb(226 232 240); /* slate-200 */
+}
+html::-webkit-scrollbar-thumb {
+    border-width: 3px;
+}
+
+/* Firefox (and anything without ::-webkit-scrollbar). Chrome 121+ ignores the
+   webkit rules above if these are set, so they are fenced off here. */
+@supports not selector(::-webkit-scrollbar) {
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: rgb(var(--sb-thumb)) transparent;
+    }
+}
+
+/* Keep the sidebar nav from jumping sideways when its scrollbar appears. */
+aside nav {
+    scrollbar-gutter: stable;
+}
+
+/* Touch devices draw their own overlay scrollbars; leave them alone. */
+@media (hover: none) and (pointer: coarse) {
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+}

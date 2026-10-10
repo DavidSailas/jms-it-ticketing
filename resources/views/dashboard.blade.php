@@ -129,7 +129,7 @@
                             <span x-show="$store.pending.isFresh(t.id)" x-cloak class="shrink-0 rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">New</span>
                         </div>
                         <p class="line-clamp-1 text-xs text-slate-500">
-                            <span x-text="t.ticket_no"></span> &middot; <span x-text="t.requester"></span><span x-show="t.company" x-text="' (' + t.company + ')'"></span> &middot; <span x-text="t.submitted"></span>
+                            <span x-text="t.ticket_no"></span> <span x-show="t.jms_requested" x-cloak class="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-300">JMS requested</span> &middot; <span x-text="t.requester"></span><span x-show="t.company" x-text="' (' + t.company + ')'"></span> &middot; <span x-text="t.submitted"></span>
                         </p>
                         <div class="mt-1.5 flex flex-wrap items-center gap-2">
                             <span class="rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset" :class="t.priority_classes" x-text="t.priority_label"></span>

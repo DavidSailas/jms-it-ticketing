@@ -190,6 +190,27 @@ class Notifier
         ], $ticket);
     }
 
+    /** A partner company could not solve a ticket and asked JMS support to take over. Only the JMS team is alerted. */
+    public static function jmsRequested(Ticket $ticket, User $actor, ?int $previousAssignee = null): void
+    {
+        Realtime::ticketChanged($ticket, $actor, 'updated', false, array_filter([$previousAssignee]));
+
+        $ticket->loadMissing('user');
+
+        self::send(self::jmsTeam(), $actor, [
+            'kind'    => 'urgent',
+            'title'   => "JMS support requested {$ticket->ticket_no}",
+            'message' => ($ticket->user?->company ? "{$ticket->user->company}: " : '') . $ticket->subject,
+            'email'   => true,
+        ], $ticket);
+
+        self::send(collect([$ticket->user]), $actor, [
+            'kind'    => 'status',
+            'title'   => "JMS support requested {$ticket->ticket_no}",
+            'message' => 'Your ticket was passed to JMS support. They will assign an engineer.',
+        ], $ticket);
+    }
+
     public static function passwordReset(User $target, User $actor): void
     {
         self::dispatch(collect([$target]), $actor, [
@@ -213,6 +234,17 @@ class Notifier
             ->orWhere(fn ($c) => $c->where('role', 'admin')->where(fn ($w) => $w
                 ->where('company_id', $ticket->company_id)
                 ->orWhere(fn ($j) => $j->whereNull('company_id')->where('company', User::JMS_NAME))
+                ->orWhereIn('company_id', $jmsCompanies))))->get();
+    }
+
+    /** JMS itself: super admins and JMS admins (the people who dispatch JMS engineers). */
+    private static function jmsTeam(): Collection
+    {
+        $jmsCompanies = \App\Models\Company::jmsIds();
+
+        return User::where(fn ($q) => $q->where('role', 'super_admin')
+            ->orWhere(fn ($c) => $c->where('role', 'admin')->where(fn ($w) => $w
+                ->where(fn ($j) => $j->whereNull('company_id')->where('company', User::JMS_NAME))
                 ->orWhereIn('company_id', $jmsCompanies))))->get();
     }
 

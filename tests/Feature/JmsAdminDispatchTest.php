@@ -112,7 +112,7 @@ class JmsAdminDispatchTest extends TestCase
         $this->assertSame($this->acme->id, (int) $ticket->company_id);
     }
 
-    public function test_jms_admin_sees_every_partner_ticket_and_both_engineer_groups(): void
+    public function test_jms_admin_sees_every_partner_ticket_but_is_offered_only_jms_engineers(): void
     {
         $ticket = $this->ticket($this->acmeUser, 'CCTV offline', ['category' => 'CCTV / Surveillance']);
 
@@ -120,7 +120,10 @@ class JmsAdminDispatchTest extends TestCase
         $this->actingAs($this->jmsAdmin)->get(route('tickets.show', $ticket))
             ->assertOk()
             ->assertSee('JMS support team')->assertSee('Jun JMS Engineer')
-            ->assertSee('Company IT team')->assertSee('Acme Own Engineer');
+            ->assertDontSee('Company IT team')->assertDontSee('Acme Own Engineer');
+
+        $this->assignTo($this->jmsAdmin, $ticket, $this->acmeEngineer)->assertSessionHasErrors('assigned_to');
+        $this->assertNull($this->fresh($ticket)->assigned_to);
     }
 
     public function test_jms_admin_can_reassign_a_ticket_jms_is_already_handling(): void
@@ -134,12 +137,16 @@ class JmsAdminDispatchTest extends TestCase
         $this->assertSame($other->id, (int) $this->fresh($ticket)->assigned_to);
     }
 
-    public function test_partner_admin_can_assign_jms_engineers_to_their_own_ticket(): void
+    public function test_partner_admin_cannot_assign_jms_engineers_only_jms_can(): void
     {
         $ticket = $this->ticket($this->acmeUser, 'Server will not boot');
 
-        $this->assignTo($this->acmeAdmin, $ticket, $this->jmsEngineer)->assertSessionHasNoErrors();
-        $this->assertSame($this->jmsEngineer->id, (int) $this->fresh($ticket)->assigned_to);
+        $this->assignTo($this->acmeAdmin, $ticket, $this->jmsEngineer)->assertSessionHasErrors('assigned_to');
+        $this->assertNull($this->fresh($ticket)->assigned_to);
+
+        // Their own IT team is still theirs to assign.
+        $this->assignTo($this->acmeAdmin, $ticket, $this->acmeEngineer)->assertSessionHasNoErrors();
+        $this->assertSame($this->acmeEngineer->id, (int) $this->fresh($ticket)->assigned_to);
     }
 
     public function test_jms_admin_is_alerted_about_new_tickets(): void

@@ -9,6 +9,10 @@
         $isStaff    = $me->isStaff();
         $jmsLocked  = $isAdmin && $ticket->isLockedToJms($me); // JMS dispatched it: a partner admin can no longer reassign it
         $final      = $ticket->isFinished();
+        $isJms      = $me->canDispatchJms();                // super admin or JMS admin: the only people who dispatch JMS engineers
+        $askingJms  = $ticket->isAskingForJms();            // the company asked JMS to take over, and nobody has accepted yet
+        $canAskJms  = ! $isJms && $me->company_id && ! $final && ! $jmsLocked && ! $askingJms
+                      && ($me->role === 'admin' || ($isEngineer && (int) $ticket->assigned_to === (int) $me->id));
         $cancelled  = $ticket->status === 'cancelled';
         $steps = ['open' => 'Submitted', 'assigned' => 'Assigned', 'in_progress' => 'In progress', 'resolved' => 'Resolved', 'closed' => 'Closed'];
         $idx = match ($ticket->status) { 'open' => 0, 'assigned' => 1, 'in_progress', 'on_hold' => 2, 'resolved' => 3, 'closed' => 4, default => -1 };
@@ -56,7 +60,8 @@
                         </a>
                     @endif
                 </div>
-                <p class="mt-1 text-xs text-slate-500">Submitted by {{ $ticket->user->name }} &middot; {{ $ticket->created_at->format('M d, Y h:i A') }}</p>
+                <p class="mt-1 text-xs text-slate-500">Submitted by {{ $ticket->user->name }} <x-admin-badge :user="$ticket->user" class="align-middle" /> &middot; {{ $ticket->created_at->format('M d, Y h:i A') }}</p>
+                @if ($askingJms) <x-jms-requested-badge :ticket="$ticket" class="mt-2" /> @endif
 
                 @if ($cancelled)
                     <div class="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">This ticket was cancelled and is no longer being worked on.</div>
@@ -186,8 +191,19 @@
                 </div>
             @endif
 
+            {{-- JMS support was requested --}}
+            @if ($askingJms && $isStaff)
+                <div class="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+                    <p class="font-semibold text-amber-800">{{ $isJms ? 'JMS support was requested' : 'Waiting for JMS support' }}</p>
+                    <p class="mt-1">
+                        @if ($isJms) The company could not solve this ticket and asked JMS to take over. Accept it below and choose a JMS engineer.
+                        @else JMS has been notified and will assign one of its engineers. You will be told as soon as they do. @endif
+                    </p>
+                </div>
+            @endif
+
             {{-- Admin: accept & assign --}}
-            @if ($isAdmin && ! $final && ! $jmsLocked)
+            @if ($isAdmin && ! $final && ! $jmsLocked && ($isJms || $engineers->isNotEmpty()))
                 <form id="assign" method="POST" action="{{ route('tickets.assign', $ticket) }}"
                       class="scroll-mt-24 space-y-4 rounded-2xl border bg-white p-5 shadow-sm {{ $ticket->assigned_to ? 'border-slate-200' : 'border-violet-300 ring-4 ring-violet-100' }}">
                     @csrf
@@ -197,25 +213,17 @@
                     </div>
 
                     <div>
-                        <label class="mb-1 block text-sm font-medium text-slate-700">IT engineer</label>
-                        <select name="assigned_to" class="{{ $field }}" required>
-                            @unless ($ticket->assigned_to) <option value="">Choose an engineer...</option> @endunless
-                            @foreach ($engineers->groupBy(fn ($e) => $e->isJmsEngineer() ? 'JMS support team' : 'Company IT team') as $group => $list)
-                                <optgroup label="{{ $group }}">
-                                    @foreach ($list as $e)
-                                        <option value="{{ $e->id }}" @selected((int) old('assigned_to', $ticket->assigned_to) === $e->id)>{{ $e->name }} &middot; {{ $workload[$e->id] ?? 0 }} active</option>
-                                    @endforeach
-                                </optgroup>
-                            @endforeach
-                        </select>
+                        <span class="mb-2 block text-sm font-medium text-slate-700">IT engineer</span>
+                        @include('tickets._engineer-cards', ['engineers' => $engineers, 'workload' => $workload, 'ticket' => $ticket])
                         @if ($engineers->isEmpty())
                             <p class="mt-1 text-xs text-amber-700">
-                                @if ($me->canDispatchJms()) No IT Support accounts yet. Create one under Users (choose "JMS One IT (our team)" for our own engineers).
-                                @else No IT engineers are available yet. Ask JMS to add one. @endif
+                                @if ($isJms) No JMS support engineers yet. Create one under Users (choose "JMS One IT (our team)"). @else Your company has no IT engineer yet. @endif
                             </p>
-                        @endif
-                        @if ($engineers->isNotEmpty())
-                            <p class="mt-1 text-xs text-slate-500">Choose one of the JMS support engineers, or your own company's IT team if you have one.</p>
+                        @else
+                            <p class="mt-1 text-xs text-slate-500">
+                                @if ($isJms) Only JMS support engineers can be assigned from here. A partner company's own IT team is assigned by that company's admin.
+                                @else Choose one of your company's IT engineers. JMS engineers are assigned by JMS: use the Need JMS support box below if your team cannot solve it. @endif
+                            </p>
                         @endif
                         @error('assigned_to') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
                     </div>
@@ -248,6 +256,26 @@
                     </div>
 
                     <button class="w-full rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700">{{ $ticket->assigned_to ? 'Save assignment' : 'Accept & assign' }}</button>
+                </form>
+            @elseif ($isAdmin && ! $final && ! $jmsLocked)
+                {{-- A partner admin whose company has no IT engineer: JMS does the dispatching. --}}
+                <div class="rounded-2xl border border-slate-200 bg-white p-5 text-sm shadow-sm">
+                    <p class="font-semibold text-brand-800">JMS will assign an engineer</p>
+                    <p class="mt-1 text-slate-600">Your company has no IT engineer of its own, so JMS support accepts this ticket and assigns one of its engineers. You can follow progress on this page and in your notifications.</p>
+                </div>
+            @endif
+
+            {{-- Partner admin or the company's own engineer: hand a ticket they cannot solve to JMS --}}
+            @if ($canAskJms)
+                <form method="POST" action="{{ route('tickets.request-jms', $ticket) }}" class="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    @csrf
+                    <div>
+                        <h3 class="font-semibold text-brand-800">Need JMS support?</h3>
+                        <p class="text-xs text-slate-500">If your team cannot solve this, ask JMS to take over. JMS reviews the request and assigns one of its engineers.</p>
+                    </div>
+                    <textarea name="jms_note" rows="3" maxlength="1000" required class="{{ $field }}" placeholder="What did you already try? What does JMS need to know?">{{ old('jms_note') }}</textarea>
+                    @error('jms_note') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
+                    <button onclick="return confirm('Ask JMS support to take over this ticket?')" class="w-full rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-700">Request JMS support</button>
                 </form>
             @endif
 
@@ -376,7 +404,7 @@
                 <div class="mb-4 flex items-center gap-3 rounded-xl bg-slate-50 p-3">
                     <x-avatar :user="$ticket->user" size="h-11 w-11" />
                     <div class="min-w-0">
-                        <p class="truncate text-sm font-semibold text-slate-800">{{ $ticket->user->name }}</p>
+                        <p class="flex items-center gap-1.5 text-sm font-semibold text-slate-800"><span class="truncate">{{ $ticket->user->name }}</span><x-admin-badge :user="$ticket->user" /></p>
                         <p class="truncate text-xs text-slate-500">{{ $ticket->user->company ?: 'Requester' }}</p>
                     </div>
                 </div>

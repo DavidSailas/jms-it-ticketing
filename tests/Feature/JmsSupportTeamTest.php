@@ -96,7 +96,7 @@ class JmsSupportTeamTest extends TestCase
         $this->assertSame($this->acme->id, (int) $ticket->company_id);
     }
 
-    public function test_super_admin_sees_jms_and_company_engineers_grouped(): void
+    public function test_super_admin_is_offered_only_jms_engineers_never_a_partners_it_team(): void
     {
         $ticket = $this->ticket($this->acmeUser, 'CCTV offline', ['category' => 'CCTV / Surveillance']);
 
@@ -104,8 +104,12 @@ class JmsSupportTeamTest extends TestCase
             ->assertOk()
             ->assertSee('JMS support team')
             ->assertSee('Jun JMS Engineer')
-            ->assertSee('Company IT team')
-            ->assertSee('Acme Own Engineer');
+            ->assertDontSee('Company IT team')
+            ->assertDontSee('Acme Own Engineer');
+
+        // Even by a hand-built request, JMS cannot assign a partner company's own IT person.
+        $this->assignTo($this->super, $ticket, $this->acmeEngineer)->assertSessionHasErrors('assigned_to');
+        $this->assertNull($this->fresh($ticket)->assigned_to);
     }
 
     public function test_jms_engineers_are_not_offered_for_another_partners_ticket_only_by_company_rules(): void
@@ -121,15 +125,16 @@ class JmsSupportTeamTest extends TestCase
         $this->assertNull($this->fresh($ticket)->assigned_to);
     }
 
-    public function test_partner_admin_can_see_and_assign_jms_engineers_for_their_own_tickets(): void
+    public function test_partner_admin_cannot_see_or_assign_jms_engineers(): void
     {
         $ticket = $this->ticket($this->acmeUser, 'Server will not boot');
 
+        // Only JMS (super admins and JMS admins) dispatch JMS engineers. A partner admin only gets their own IT team.
         $this->actingAs($this->acmeAdmin)->get(route('tickets.show', $ticket))
-            ->assertOk()->assertSee('Jun JMS Engineer')->assertSee('JMS support team');
+            ->assertOk()->assertDontSee('Jun JMS Engineer')->assertDontSee('JMS support team')->assertSee('Acme Own Engineer');
 
-        $this->assignTo($this->acmeAdmin, $ticket, $this->jmsEngineer)->assertSessionHasNoErrors();
-        $this->assertSame($this->jmsEngineer->id, (int) $this->fresh($ticket)->assigned_to);
+        $this->assignTo($this->acmeAdmin, $ticket, $this->jmsEngineer)->assertSessionHasErrors('assigned_to');
+        $this->assertNull($this->fresh($ticket)->assigned_to);
     }
 
     public function test_partner_admin_can_still_assign_their_own_engineer(): void
@@ -141,13 +146,13 @@ class JmsSupportTeamTest extends TestCase
         $this->assertSame($this->acmeEngineer->id, (int) $this->fresh($ticket)->assigned_to);
     }
 
-    public function test_partner_admin_can_reassign_a_ticket_a_jms_engineer_is_handling(): void
+    public function test_partner_admin_cannot_take_a_ticket_back_from_a_jms_engineer(): void
     {
         $ticket = $this->ticket($this->acmeUser, 'Database slow');
         $this->assignTo($this->super, $ticket, $this->jmsEngineer);
 
-        $this->assignTo($this->acmeAdmin, $ticket, $this->acmeEngineer)->assertSessionHasNoErrors();
-        $this->assertSame($this->acmeEngineer->id, (int) $this->fresh($ticket)->assigned_to);
+        $this->assignTo($this->acmeAdmin, $ticket, $this->acmeEngineer)->assertRedirect()->assertSessionHas('error');
+        $this->assertSame($this->jmsEngineer->id, (int) $this->fresh($ticket)->assigned_to);
     }
 
     public function test_partner_admin_cannot_assign_another_partners_engineer(): void
