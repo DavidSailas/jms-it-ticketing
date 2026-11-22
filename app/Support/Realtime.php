@@ -17,8 +17,7 @@ use Illuminate\Support\Str;
  *
  * Channels (all private, authorised in routes/channels.php):
  *   user.{id}     one person: their own tickets, assignments and notifications
- *   company.{id}  the admins of one partner company: that company's tickets
- *   staff.jms     JMS super admins and JMS admins: every ticket
+ *   staff.jms     JMS super admins and admins: every ticket
  */
 class Realtime
 {
@@ -32,8 +31,7 @@ class Realtime
     {
         return match ($channel) {
             'user'    => $id !== null && (int) $user->id === $id,
-            'company' => $id !== null && $user->role === 'admin' && (int) $user->company_id === $id,
-            'staff'   => $user->role === 'super_admin' || $user->isJmsAdmin(),
+            'staff'   => $user->canDispatchJms(),
             default   => false,
         };
     }
@@ -48,9 +46,6 @@ class Realtime
         $client = config('broadcasting.connections.reverb.client', []);
         $channels = ["user.{$user->id}"];
 
-        if ($user->role === 'admin' && $user->company_id) {
-            $channels[] = "company.{$user->company_id}";
-        }
         if (self::canListen($user, 'staff')) {
             $channels[] = 'staff.jms';
         }
@@ -76,9 +71,6 @@ class Realtime
 
         $channels = ['staff.jms'];
 
-        if ($ticket->company_id) {
-            $channels[] = "company.{$ticket->company_id}";
-        }
         foreach (array_filter([$ticket->assigned_to, ...$alsoUsers]) as $id) {
             $channels[] = "user.{$id}";
         }

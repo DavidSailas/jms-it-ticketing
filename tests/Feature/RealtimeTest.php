@@ -62,7 +62,7 @@ class RealtimeTest extends TestCase
         $this->actingAs($this->engineer)->get(route('dashboard'))->assertOk()->assertDontSee('JMS_REALTIME');
     }
 
-    public function test_a_reply_nudges_the_ticket_owner_company_admins_jms_and_the_engineer(): void
+    public function test_a_reply_nudges_the_ticket_owner_jms_and_the_engineer(): void
     {
         $this->turnOn();
         Event::fake([TicketChanged::class, NotificationPushed::class]);
@@ -74,7 +74,7 @@ class RealtimeTest extends TestCase
                 && $e->payload['kind'] === 'comment'
                 && $e->payload['actor_id'] === $this->engineer->id
                 && ! isset($e->payload['subject'])
-                && collect(['staff.jms', "company.{$this->acme->id}", "user.{$this->partner->id}", "user.{$this->engineer->id}"])
+                && collect(['staff.jms', "user.{$this->partner->id}", "user.{$this->engineer->id}"])
                     ->diff($e->channels)->isEmpty();
         });
         Event::assertDispatched(NotificationPushed::class, fn (NotificationPushed $e) => in_array($this->partner->id, $e->userIds, true));
@@ -128,12 +128,12 @@ class RealtimeTest extends TestCase
         $this->assertTrue(Realtime::canListen($this->partner, 'user', $this->partner->id));
         $this->assertFalse(Realtime::canListen($this->partner, 'user', $this->engineer->id));
 
-        $this->assertTrue(Realtime::canListen($this->acmeAdmin, 'company', $this->acme->id));
-        $this->assertFalse(Realtime::canListen($this->partner, 'company', $this->acme->id), 'ordinary partner staff only get their own tickets');
-        $this->assertFalse(Realtime::canListen($this->acmeAdmin, 'company', $this->acme->id + 1));
+        // There are no company channels any more: customers only get their own tickets.
+        $this->assertFalse(Realtime::canListen($this->partner, 'company', $this->acme->id));
 
         $this->assertTrue(Realtime::canListen($this->super, 'staff'));
-        $this->assertFalse(Realtime::canListen($this->acmeAdmin, 'staff'));
+        $this->assertTrue(Realtime::canListen($this->acmeAdmin, 'staff'), 'admins dispatch tickets like super admins');
+        $this->assertFalse(Realtime::canListen($this->partner, 'staff'));
         $this->assertFalse(Realtime::canListen($this->engineer, 'staff'));
         $this->assertFalse(Realtime::canListen($this->super, 'anything-else'));
     }
@@ -146,7 +146,7 @@ class RealtimeTest extends TestCase
         $this->assertSame(["user.{$this->partner->id}"], $partner['channels']);
 
         $admin = Realtime::clientConfig($this->acmeAdmin);
-        $this->assertSame(["user.{$this->acmeAdmin->id}", "company.{$this->acme->id}"], $admin['channels']);
+        $this->assertSame(["user.{$this->acmeAdmin->id}", 'staff.jms'], $admin['channels']);
 
         $this->assertContains('staff.jms', Realtime::clientConfig($this->super)['channels']);
         $this->assertArrayNotHasKey('secret', $partner);

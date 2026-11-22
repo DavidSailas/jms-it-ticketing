@@ -3,7 +3,7 @@
         $role       = auth()->user()->role;
         $isPartner  = $role === 'user';
         $isStaff    = auth()->user()->isStaff();
-        $isAdmin    = in_array($role, ['admin', 'super_admin']);
+        $isAdmin    = auth()->user()->canDispatchJms();
         $isEngineer = $role === 'it_support';
         $canLog     = auth()->user()->canLogTickets();
         $tabs = ['' => 'All'];

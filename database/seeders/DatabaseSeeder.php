@@ -11,22 +11,22 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        // JMS itself has no company; partner accounts belong to a company.
+        // JMS One IT's own people (Super Admin, Admin, IT Engineers) belong to no partner company.
+        // Only customers belong to a partner company.
         $partner = Company::firstOrCreate(['name' => 'Partner Company Inc.']);
 
         $accounts = [
-            ['Partner User',  'user@jmsoneit.com',       'user',        $partner->id, 'user'],
-            ['IT Support',    'itsupport@jmsoneit.com',  'it_support',  $partner->id, 'itsupport'],
-            ['System Admin',  'admin@jmsoneit.com',      'admin',       $partner->id, 'admin'],
-            ['Super Admin',   'superadmin@jmsoneit.com', 'super_admin', null,         'superadmin'],
-            // JMS's own engineer: no partner company, so a super admin can assign them to any partner's ticket.
-            ['JMS Engineer',  'jmsengineer@jmsoneit.com', 'it_support', null,         'jmsengineer'],
+            ['Partner Customer', 'user@jmsoneit.com',         'user',        $partner->id, 'user'],
+            ['IT Engineer',      'itsupport@jmsoneit.com',    'it_support',  null,         'itsupport'],
+            ['System Admin',     'admin@jmsoneit.com',        'admin',       null,         'admin'],
+            ['Super Admin',      'superadmin@jmsoneit.com',   'super_admin', null,         'superadmin'],
+            ['JMS Engineer',     'jmsengineer@jmsoneit.com',  'it_support',  null,         'jmsengineer'],
         ];
 
         foreach ($accounts as [$name, $email, $role, $companyId, $username]) {
+            // The company name shown on screen (JMS One IT for our own people) is filled in by the User model.
             $u = User::updateOrCreate(['email' => $email], [
                 'name' => $name, 'username' => $username, 'role' => $role, 'company_id' => $companyId,
-                'company' => $role === 'super_admin' ? 'JMS One IT' : null,
                 'password' => Hash::make('P@ssw0rd123'),
             ]);
             $u->forceFill(['email_verified_at' => now()])->save();

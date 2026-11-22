@@ -31,9 +31,8 @@ class DemoWorkflowSeeder extends Seeder
         $company = Company::firstOrCreate(['name' => 'Demo Company'], ['phone' => '+63 32 555 0000', 'address' => 'Cebu City']);
 
         $staff = $this->person('Dina Staff', 'demo.staff@demo.test', 'user', $company->id);
-        $admin = $this->person('Dario Admin', 'demo.admin@demo.test', 'admin', $company->id);
-        $it    = $this->person('Ivy IT Support', 'demo.it@demo.test', 'it_support', $company->id);
-        $jms   = $this->person('Jun JMS Engineer', 'demo.jms@demo.test', 'it_support', null);
+        $admin = $this->person('Dario Admin', 'demo.admin@demo.test', 'admin', null);
+        $it    = $this->person('Ivy IT Engineer', 'demo.it@demo.test', 'it_support', null);
 
         // Start from a clean slate: remove earlier demo tickets (their replies and history go with them).
         Ticket::withoutGlobalScopes()->where('subject', 'like', '[DEMO]%')->get()->each->delete();
@@ -49,11 +48,10 @@ class DemoWorkflowSeeder extends Seeder
 
         $this->command->info("Demo ticket {$ticket->ticket_no} is Open and ready.");
         $this->command->table(['Role in the story', 'Email', 'Password'], [
-            ['1. Reports the problem (staff)', $staff->email, self::PASSWORD],
-            ['2. Accepts and assigns (company admin)', $admin->email, self::PASSWORD],
-            ['3. Fixes it (company IT support)', $it->email, self::PASSWORD],
-            ['Path B: JMS engineer', $jms->email, self::PASSWORD],
-            ['Path B: accepts and assigns', 'superadmin@jmsoneit.com', self::PASSWORD],
+            ['1. Reports the problem (customer)', $staff->email, self::PASSWORD],
+            ['2. Accepts and assigns (admin)', $admin->email, self::PASSWORD],
+            ['3. Fixes it (IT engineer)', $it->email, self::PASSWORD],
+            ['Or: accepts and assigns (super admin)', 'superadmin@jmsoneit.com', self::PASSWORD],
         ]);
     }
 

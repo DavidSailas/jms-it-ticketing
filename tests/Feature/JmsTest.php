@@ -43,8 +43,8 @@ class JmsTest extends TestCase
         foreach ([$admin, $super] as $x) {
             $this->actingAs($x)->get('/dashboard')->assertOk()->assertSee('Waiting for acceptance')->assertSee('Active work');
         }
-        // A partner admin logs tickets for their company; the super admin is JMS itself and does not.
-        $this->actingAs($admin)->get('/tickets/create')->assertOk()->assertSee('What kind of problem is it?');
+        // Only customers log tickets. Admins and super admins are JMS itself and do not.
+        $this->actingAs($admin)->get('/tickets/create')->assertForbidden();
         $this->actingAs($super)->get('/tickets/create')->assertForbidden();
         foreach ([$user, $support, $admin, $super] as $x) {
             $this->actingAs($x)->get('/tickets')->assertOk();
@@ -63,9 +63,10 @@ class JmsTest extends TestCase
         $this->actingAs($user)->get("/tickets/{$t->id}")->assertDontSee('Update progress')->assertDontSee('Accept & assign');
 
         // Engineers only see tickets an admin assigned to them; admins accept and assign.
-        $this->actingAs($support)->get("/tickets/{$t->id}")->assertForbidden();
+        $this->actingAs($support)->get("/tickets/{$t->id}")->assertNotFound();   // not assigned to them yet
         $this->actingAs($admin)->get("/tickets/{$t->id}")->assertOk()->assertSee('Accept & assign');
-        $this->actingAs($support)->post("/tickets/{$t->id}/assign", ['assigned_to' => $support->id, 'support_type' => 'remote', 'priority' => 'high'])->assertForbidden();
+        $this->actingAs($support)->post("/tickets/{$t->id}/assign", ['assigned_to' => $support->id, 'support_type' => 'remote', 'priority' => 'high'])->assertNotFound();
+        $this->assertNull($t->fresh()->assigned_to);
         $this->actingAs($admin)->post("/tickets/{$t->id}/assign", ['assigned_to' => $support->id, 'support_type' => 'remote', 'priority' => 'high'])->assertRedirect();
         $this->actingAs($support)->get("/tickets/{$t->id}")->assertOk()->assertSee('Update progress');
 
@@ -167,14 +168,14 @@ class JmsTest extends TestCase
 
         $this->actingAs($admin)->post('/users', ['name' => '', 'username' => 'a b', 'email' => 'not-an-email', 'role' => 'user'])
             ->assertSessionHasErrors(['name', 'username', 'email']);
-        $this->actingAs($admin)->post('/users', ['name' => 'Dup', 'username' => 'admin', 'email' => 'dup@x.com', 'role' => 'user'])
+        $this->actingAs($admin)->post('/users', ['name' => 'Dup', 'username' => 'admin', 'email' => 'dup@x.com', 'role' => 'it_support'])
             ->assertSessionHasErrors(['username' => 'That username is already taken.']);
-        $this->actingAs($admin)->post('/users', ['name' => 'Dup', 'username' => 'dup', 'email' => 'user@jmsoneit.com', 'role' => 'user'])
+        $this->actingAs($admin)->post('/users', ['name' => 'Dup', 'username' => 'dup', 'email' => 'user@jmsoneit.com', 'role' => 'it_support'])
             ->assertSessionHasErrors(['email' => 'An account with this email already exists.']);
         $this->actingAs($user)->post('/tickets', ['subject' => 'Printer offline', 'category' => 'Printer / Peripherals', 'priority' => 'low', 'description' => 'Printer shows offline', 'contact_phone' => 'call me'])->assertSessionHasErrors('contact_phone');
         $this->actingAs($user)->post('/tickets', ['subject' => 'Printer offline', 'category' => 'Printer / Peripherals', 'priority' => 'low', 'description' => 'Printer shows offline', 'when' => 'now', 'contact_phone' => '+63 900 000 0000', 'location' => 'Cebu branch'])->assertSessionHasNoErrors();
         $this->assertSame('Cebu branch', Ticket::where('subject', 'Printer offline')->first()->location);
-        $this->actingAs($admin)->post('/tickets', ['subject' => 'abc', 'category' => '', 'priority' => 'high', 'description' => 'short'])
+        $this->actingAs($user)->post('/tickets', ['subject' => 'abc', 'category' => '', 'priority' => 'high', 'description' => 'short'])
             ->assertSessionHasErrors(['subject', 'category', 'description']);
     }
 }

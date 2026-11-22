@@ -25,11 +25,18 @@ class Ticket extends Model
 
     public const SUPPORT_TYPES = ['remote' => 'Remote support', 'onsite' => 'On-site visit'];
 
+    /** A customer cannot move or cancel a booking that starts within this many hours. */
+    public const RESCHEDULE_CUTOFF_HOURS = 2;
+
+    /** Two bookings for one engineer closer together than this are flagged as a clash. */
+    public const BOOKING_WINDOW_MINUTES = 60;
+
     /** Target hours to resolve, by priority. */
     public const SLA_HOURS = ['critical' => 4, 'high' => 8, 'medium' => 24, 'low' => 72];
 
     protected $guarded = [];
-    protected $casts = ['resolved_at' => 'datetime', 'accepted_at' => 'datetime', 'scheduled_for' => 'datetime', 'jms_requested_at' => 'datetime'];
+    protected $casts = ['resolved_at' => 'datetime', 'accepted_at' => 'datetime', 'scheduled_for' => 'datetime', 'jms_requested_at' => 'datetime',
+        'reschedule_requested_for' => 'datetime', 'reschedule_requested_at' => 'datetime'];
 
     protected static function booted(): void
     {
@@ -54,38 +61,20 @@ class Ticket extends Model
     public function activity() { return $this->hasMany(ActivityLog::class); }
 
     /**
-     * The engineers this person may hand the ticket to. Each side only assigns its OWN people:
-     *  - JMS (super admins and JMS admins) can only assign JMS's own engineers (IT Support with no company).
-     *    A partner company's IT team belongs to that company and is never assigned by JMS.
-     *  - A partner company's admin can only assign their own company's IT Support.
-     * Partner users never see this list.
+     * The IT Engineers this person may hand the ticket to: only Admins and Super Admins assign tickets,
+     * and only to JMS's own engineers. Engineers and customers never see this list.
      */
     public function assignableEngineers(User $viewer)
     {
-        $query = User::where('role', 'it_support');
-
-        if ($viewer->canDispatchJms()) {
-            return User::jmsEngineers()->orderBy('name')->get();
-        }
-
-        // A ticket with no company must never fall through to "company_id IS NULL" (that would be the JMS team).
-        if (! $this->company_id) {
-            return collect();
-        }
-
-        return $query->where('company_id', $this->company_id)->orderBy('name')->get();
+        return $viewer->canDispatchJms()
+            ? User::jmsEngineers()->orderBy('name')->get()
+            : collect();
     }
 
-    /** True once a JMS engineer has the ticket: from then on only JMS can reassign it (the partner can still reply). */
+    /** Kept for old links: with every admin working for JMS, nobody is ever locked out of reassigning. */
     public function isLockedToJms(User $viewer): bool
     {
-        if ($viewer->canDispatchJms() || ! $this->assigned_to) {
-            return false;
-        }
-
-        $this->loadMissing('assignee');
-
-        return (bool) $this->assignee?->isJmsEngineer();
+        return false;
     }
 
     /** The company asked JMS support to take over, and JMS has not accepted it yet. */
@@ -118,6 +107,61 @@ class Ticket extends Model
     public function isCancellable(): bool
     {
         return $this->status === 'open' && $this->assigned_to === null;
+    }
+
+    /**
+     * Engineers who already have a booked visit or call close to $at (within BOOKING_WINDOW_MINUTES).
+     * Returns the clashing ticket per engineer id, so the first clash is enough to warn about.
+     */
+    public static function engineerClashes(?CarbonInterface $at, ?int $exceptTicketId = null)
+    {
+        if (! $at) {
+            return collect();
+        }
+
+        return static::withoutGlobalScopes()
+            ->whereIn('status', ['assigned', 'in_progress', 'on_hold'])
+            ->whereNotNull('assigned_to')
+            ->whereNotNull('scheduled_for')
+            ->where('scheduled_for', '>', $at->copy()->subMinutes(self::BOOKING_WINDOW_MINUTES))
+            ->where('scheduled_for', '<', $at->copy()->addMinutes(self::BOOKING_WINDOW_MINUTES))
+            ->when($exceptTicketId, fn ($q) => $q->where('id', '!=', $exceptTicketId))
+            ->orderBy('scheduled_for')
+            ->get()
+            ->unique('assigned_to')
+            ->keyBy('assigned_to');
+    }
+
+    /** Why the requester cannot move this booking right now, or null when they can. */
+    public function rescheduleBlockedReason(): ?string
+    {
+        if ($this->isFinished()) {
+            return 'This ticket is already ' . strtolower($this->statusLabel()) . '.';
+        }
+        if (! in_array($this->status, ['open', 'assigned'])) {
+            return 'Our engineer is already working on this ticket. Please reply on the ticket to agree a new time.';
+        }
+        if ($this->scheduled_for && $this->scheduled_for->lte(now()->addHours(self::RESCHEDULE_CUTOFF_HOURS))) {
+            return 'The booking starts in less than ' . self::RESCHEDULE_CUTOFF_HOURS . ' hours, so it can no longer be moved. Please reply on the ticket.';
+        }
+
+        return null;
+    }
+
+    public function isReschedulable(): bool
+    {
+        return $this->rescheduleBlockedReason() === null;
+    }
+
+    /** True while the booking moves only after JMS approves it (an engineer is already assigned). */
+    public function needsRescheduleApproval(): bool
+    {
+        return $this->assigned_to !== null;
+    }
+
+    public function hasPendingReschedule(): bool
+    {
+        return $this->reschedule_requested_for !== null && ! $this->isFinished();
     }
 
     public function isFinished(): bool

@@ -23,7 +23,7 @@ class RoleLookTest extends TestCase
         // Admin: violet "Admin Console" shell and banner, no super-admin extras.
         $this->actingAs($admin)->get('/dashboard')->assertOk()
             ->assertSee('Admin Console')->assertSee('Service desk')->assertSee('bg-violet-50', false)
-            ->assertSee('Accept new tickets, assign your engineers')->assertSee('Upcoming bookings')->assertSee('Skip to content')
+            ->assertSee('Accept new tickets from every partner, assign our IT Engineers')->assertSee('Upcoming bookings')->assertSee('Skip to content')
             ->assertDontSee('Super Admin Console')->assertDontSee('System overview')->assertDontSee('Recent system activity');
 
         // Super Admin: dark navy and gold shell, system overview and a system-wide activity feed.
@@ -39,8 +39,8 @@ class RoleLookTest extends TestCase
             }
         }
 
-        // Logging a ticket is for partner companies: the partner admin can, the super admin (JMS itself) cannot.
-        $this->actingAs($admin)->get('/tickets/create')->assertOk();
+        // Logging a ticket is for customers of partner companies. Admins and super admins (JMS itself) do not.
+        $this->actingAs($admin)->get('/tickets/create')->assertForbidden();
         $this->actingAs($super)->get('/tickets/create')->assertForbidden();
     }
 

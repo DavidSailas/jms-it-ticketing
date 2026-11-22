@@ -21,9 +21,8 @@ class UserController extends Controller
 
     /**
      * Roles the signed-in person can see in the Users list and open.
-     * Admin       -> users and IT support of their own company
-     * JMS admin   -> JMS's own IT Support (our engineers)
-     * Super admin -> users, IT support and admins
+     * Admin       -> customers and IT engineers
+     * Super admin -> customers, IT engineers and admins
      */
     private function visibleRoles(): array
     {
@@ -35,14 +34,8 @@ class UserController extends Controller
         return auth()->user()->role === 'super_admin';
     }
 
-    /** An admin of JMS One IT itself (not a partner's admin). */
-    private function isJmsAdmin(): bool
-    {
-        return auth()->user()->isJmsAdmin();
-    }
-
     /**
-     * The company box offers "JMS One IT (our team)" (value "jms") for Admin and IT Support.
+     * The company box offers "JMS One IT (our team)" (value "jms") for Admin and IT Engineer accounts.
      * Turn it into "no partner company" and remember the choice, so the rules below can tell it apart from an empty box.
      */
     private function readJmsChoice(Request $request): void
@@ -52,17 +45,17 @@ class UserController extends Controller
         }
     }
 
-    /** Only Admin and IT Support can belong to JMS itself; partner users always belong to a partner company. */
+    /** Only JMS's own roles (Admin, IT Engineer) can join JMS One IT; a Customer always belongs to a partner company. */
     private function jmsTeamRoleError(Request $request, ?string $role): ?string
     {
-        return $request->boolean('jms_team') && ! in_array($role, ['admin', 'it_support'])
-            ? 'Partner users must belong to a partner company. Only Admin and IT Support can join the JMS One IT team.'
+        return $request->boolean('jms_team') && ! in_array($role, User::STAFF_ROLES)
+            ? 'A Customer must belong to a partner company. Only Admins and IT Engineers belong to JMS One IT.'
             : null;
     }
 
     /**
-     * Every account the signed-in person may see: the visible roles, limited to their own company
-     * (super admins see all companies).
+     * Every account the signed-in person may see: the visible roles, across all companies
+     * (only JMS's own Admins and Super Admins reach the Users page).
      */
     private function scoped()
     {
@@ -82,14 +75,14 @@ class UserController extends Controller
     }
 
     /**
-     * Super admins must pick a company, unless they choose "JMS One IT (our team)". For IT Support, leaving the
-     * company empty also makes that person one of JMS's own engineers, who can be assigned to any partner's ticket.
+     * A Customer must be placed in a partner company. Admins and IT Engineers belong to JMS One IT, so the
+     * company box does not matter for them (it is ignored and they are always filed under JMS One IT).
      */
     private function companyRule(Request $request): array
     {
         return [
             'nullable',
-            Rule::requiredIf(fn () => $this->isSuper() && $request->input('role') !== 'it_support' && ! $request->boolean('jms_team')),
+            Rule::requiredIf(fn () => $request->input('role') === 'user' && ! $request->boolean('jms_team')),
             Rule::exists('companies', 'id'),
         ];
     }
@@ -104,7 +97,7 @@ class UserController extends Controller
         $perPage = in_array((int) $request->query('per_page'), [10, 25, 50]) ? (int) $request->query('per_page') : 10;
 
         $users = $this->scoped()->with('companyRecord:id,name')->withCount('tickets')
-            ->when($this->isSuper() && $request->company, fn ($q, $c) => $q->where('company_id', (int) $c))
+            ->when($request->company, fn ($q, $c) => $q->where('company_id', (int) $c))
             ->when(in_array($request->role, $visible), fn ($q) => $q->where('role', $request->role))
             ->when($request->search, fn ($q, $s) => $q->where(fn ($y) =>
                 $y->where('name', 'like', "%$s%")
@@ -152,8 +145,8 @@ class UserController extends Controller
     }
 
     /**
-     * An admin sets (or replaces) the profile photo of someone they manage: a partner's admin for their company's
-     * staff, a super admin for anyone but other super admins. Same rules as the person's own upload on /profile.
+     * An admin sets (or replaces) the profile photo of someone they manage: an admin for customers and engineers, a
+     * super admin for anyone but other super admins. Same rules as the person's own upload on /profile.
      */
     public function updateAvatar(Request $request, User $user)
     {
@@ -221,7 +214,7 @@ class UserController extends Controller
             'email'    => ['required', 'email:rfc', 'max:255', 'unique:users,email'],
             'role'     => ['required', Rule::in($this->assignable())],
         ], [
-            'company_id.required' => 'Choose the company this person belongs to, or "JMS One IT (our team)" for our own admins and engineers.',
+            'company_id.required' => 'Choose the partner company this customer belongs to.',
             'company_id.exists'   => 'Choose a company from the list.',
             'name.required'     => "Enter the person's full name.",
             'name.min'          => 'The name must be at least 2 characters.',
@@ -241,12 +234,9 @@ class UserController extends Controller
             return back()->withErrors(['company_id' => $error])->withInput(array_merge($request->all(), ['company_id' => 'jms']));
         }
 
-        // A JMS admin adds people to JMS's own team; a partner's admin can only add people to their own company.
-        if ($this->isJmsAdmin()) {
+        // Admins and IT Engineers are JMS's own people: they never belong to a partner company.
+        if (in_array($data['role'], User::STAFF_ROLES)) {
             $data['company_id'] = null;
-        } elseif (! $this->isSuper()) {
-            abort_unless(auth()->user()->company_id, 403, 'Your account is not attached to a company yet. Ask JMS to assign one.');
-            $data['company_id'] = auth()->user()->company_id;
         }
 
         User::create($data + ['password' => Hash::make(self::DEFAULT_PASSWORD)])
@@ -306,13 +296,8 @@ class UserController extends Controller
             'admin' => 'admin', 'super_admin' => 'super_admin', 'superadmin' => 'super_admin',
         ];
 
-        // Super admins name the company on each row; a company admin always imports into their own company.
+        // Each row names the partner company of a Customer. Admins and IT Engineers always join JMS One IT.
         $companies = Company::pluck('id', 'name')->mapWithKeys(fn ($id, $name) => [Str::lower($name) => $id]);
-        $myCompany = auth()->user()->company_id;
-
-        if (! $this->isSuper() && ! $this->isJmsAdmin() && ! $myCompany) {
-            return back()->withErrors(['file' => 'Your account is not attached to a company yet. Ask JMS to assign one.']);
-        }
 
         $password = Hash::make(self::DEFAULT_PASSWORD);
         $seenEmails = [];
@@ -346,15 +331,10 @@ class UserController extends Controller
                 }
             }
 
-            // "JMS One IT" in the company column (or an empty one for IT Support) means JMS's own team.
-            $namesJms     = \App\Models\Company::isJmsName($row['company'] ?? '');
-            $companyId    = $this->isSuper() ? ($companies[Str::lower($row['company'] ?? '')] ?? null) : $myCompany;
-            $joinsJmsTeam = $this->isJmsAdmin()
-                || ($this->isSuper() && $namesJms && in_array($role, ['admin', 'it_support']))
-                || ($this->isSuper() && $role === 'it_support' && ($row['company'] ?? '') === '');
-            if ($joinsJmsTeam) {
-                $companyId = null; // JMS's own team has no partner company
-            }
+            // Admins and IT Engineers belong to JMS One IT (no partner company); a Customer needs an existing partner company.
+            $joinsJmsTeam = in_array($role, User::STAFF_ROLES);
+            $companyId    = $joinsJmsTeam ? null : ($companies[Str::lower($row['company'] ?? '')] ?? null);
+
             if (! $companyId && ! $joinsJmsTeam) {
                 $errors[] = "Row {$line} ({$email}): the company \"" . ($row['company'] ?? '') . '" does not exist. Create it under Companies first.';
                 continue;
@@ -433,7 +413,7 @@ class UserController extends Controller
             'email.unique'      => 'An account with this email already exists.',
             'role.required'     => 'Choose a role for this account.',
             'role.in'           => 'You are not allowed to assign that role.',
-            'company_id.required' => 'Choose the company this person belongs to, or "JMS One IT (our team)" for our own admins and engineers.',
+            'company_id.required' => 'Choose the partner company this customer belongs to.',
             'company_id.exists'   => 'Choose a company from the list.',
         ]);
 
@@ -450,9 +430,9 @@ class UserController extends Controller
         }
 
         $data = $validator->validated();
-        // Only JMS can move someone to another company.
-        if (! $this->isSuper()) {
-            unset($data['company_id']);
+        // Admins and IT Engineers are JMS's own people and never belong to a partner company.
+        if (in_array($data['role'] ?? $user->role, User::STAFF_ROLES)) {
+            $data['company_id'] = null;
         }
 
         // An engineer must not be moved away from tickets they are still working on (they would lose sight of them).

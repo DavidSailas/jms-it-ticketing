@@ -54,7 +54,7 @@ class AdminUserPhotoTest extends TestCase
         return UploadedFile::fake()->createWithContent($name, base64_decode(self::PNG));
     }
 
-    public function test_a_partner_admin_can_set_and_replace_an_employees_photo(): void
+    public function test_an_admin_can_set_and_replace_a_customers_photo(): void
     {
         $this->actingAs($this->acmeAdmin)->post(route('users.avatar.update', $this->employee), ['avatar' => $this->png()])
             ->assertSessionHasNoErrors()->assertSessionHas('success');
@@ -92,20 +92,19 @@ class AdminUserPhotoTest extends TestCase
     {
         $file = fn () => ['avatar' => $this->png()];
 
-        // Another company's employee, a fellow admin and the admin themselves are off limits.
-        $this->actingAs($this->acmeAdmin)->post(route('users.avatar.update', $this->globexEmployee), $file())->assertForbidden();
+        // A fellow admin and the admin themselves are off limits.
         $this->actingAs($this->acmeAdmin)->post(route('users.avatar.update', $this->otherAcmeAdmin), $file())->assertForbidden();
         $this->actingAs($this->acmeAdmin)->post(route('users.avatar.update', $this->acmeAdmin), $file())->assertForbidden();
-        $this->actingAs($this->acmeAdmin)->delete(route('users.avatar.destroy', $this->globexEmployee))->assertForbidden();
+        $this->actingAs($this->acmeAdmin)->delete(route('users.avatar.destroy', $this->otherAcmeAdmin))->assertForbidden();
 
         // Ordinary staff cannot change anybody's photo.
         $this->actingAs($this->employee)->post(route('users.avatar.update', $this->employee), $file())->assertForbidden();
 
-        $this->assertNull($this->globexEmployee->fresh()->avatar);
-
-        // A super admin can reach every company.
-        $this->actingAs($this->super)->post(route('users.avatar.update', $this->globexEmployee), $file())->assertSessionHasNoErrors();
+        // An admin reaches the customers of every partner company; only a super admin can change another admin.
+        $this->actingAs($this->acmeAdmin)->post(route('users.avatar.update', $this->globexEmployee), $file())->assertSessionHasNoErrors();
         $this->assertNotNull($this->globexEmployee->fresh()->avatar);
+        $this->actingAs($this->super)->post(route('users.avatar.update', $this->otherAcmeAdmin), $file())->assertSessionHasNoErrors();
+        $this->assertNotNull($this->otherAcmeAdmin->fresh()->avatar);
     }
 
     public function test_bad_files_are_rejected(): void

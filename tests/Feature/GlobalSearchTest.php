@@ -83,20 +83,16 @@ class GlobalSearchTest extends TestCase
             ->assertJsonCount(1, 'tickets')->assertJsonPath('tickets.0.id', $assigned->id);
     }
 
-    public function test_a_company_admin_stays_inside_their_company_for_tickets_and_people(): void
+    public function test_an_admin_finds_tickets_and_customers_of_every_company_but_never_super_admins(): void
     {
         $this->ticket($this->acmeUser, 'VPN is slow');
         $this->ticket($this->globexUser, 'VPN is down');
 
-        $res = $this->search($this->acmeAdmin, 'vpn')->assertOk();
-        $res->assertJsonCount(1, 'tickets');
+        $this->search($this->acmeAdmin, 'vpn')->assertOk()->assertJsonCount(2, 'tickets');
 
-        // People: their own company's people, never another company's, and never super admins.
         $names = collect($this->search($this->acmeAdmin, 'acme')->json('people'))->pluck('title');
         $this->assertTrue($names->contains('Alice Acme'));
         $this->assertFalse($names->contains('Sue Super'));
-        $this->assertSame([], $this->search($this->acmeAdmin, 'globex')->json('people'));
-        $this->search($this->acmeAdmin, 'acme')->assertJsonPath('companies', []);
     }
 
     public function test_partners_and_engineers_never_get_people_or_companies(): void

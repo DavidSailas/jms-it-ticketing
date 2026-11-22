@@ -146,6 +146,64 @@ class Notifier
         ], $ticket);
     }
 
+    /** An admin cancelled the ticket: tell the customer and the engineer who had it. */
+    public static function ticketCancelledByStaff(Ticket $ticket, User $actor): void
+    {
+        Realtime::ticketChanged($ticket, $actor, 'updated');
+
+        $ticket->loadMissing(['user', 'assignee']);
+
+        self::send(collect([$ticket->user, $ticket->assignee]), $actor, [
+            'kind'    => 'urgent',
+            'title'   => "Ticket cancelled {$ticket->ticket_no}",
+            'message' => "JMS One IT cancelled this ticket: {$ticket->subject}. See the ticket for the reason.",
+            'email'   => true,
+        ], $ticket);
+    }
+
+    /** Customer moved a booking that nobody had accepted yet: tell the team. */
+    public static function rescheduleApplied(Ticket $ticket, User $actor): void
+    {
+        Realtime::ticketChanged($ticket, $actor, 'updated');
+
+        self::send(self::admins($ticket), $actor, [
+            'kind'    => 'status',
+            'title'   => "Booking moved {$ticket->ticket_no}",
+            'message' => "{$actor->name} moved it. " . $ticket->whenLabel() . ' - ' . $ticket->subject,
+            'email'   => true,
+        ], $ticket);
+    }
+
+    /** Customer asked to move a booking that already has an engineer: the team must approve. */
+    public static function rescheduleRequested(Ticket $ticket, User $actor): void
+    {
+        Realtime::ticketChanged($ticket, $actor, 'updated');
+
+        $ticket->loadMissing('assignee');
+
+        self::send(self::admins($ticket)->push($ticket->assignee), $actor, [
+            'kind'    => 'priority',
+            'title'   => "Reschedule request {$ticket->ticket_no}",
+            'message' => "{$actor->name} asks to move it to " . $ticket->reschedule_requested_for->format('M d, Y h:i A') . '. Approve or decline on the ticket.',
+            'email'   => true,
+        ], $ticket);
+    }
+
+    /** The team answered a reschedule request: tell the customer (and the engineer). */
+    public static function rescheduleDecided(Ticket $ticket, User $actor, bool $approved): void
+    {
+        Realtime::ticketChanged($ticket, $actor, 'updated');
+
+        $ticket->loadMissing(['user', 'assignee']);
+
+        self::send(collect([$ticket->user, $ticket->assignee]), $actor, [
+            'kind'    => 'status',
+            'title'   => ($approved ? 'Reschedule approved ' : 'Reschedule declined ') . $ticket->ticket_no,
+            'message' => $approved ? $ticket->whenLabel() . ' - ' . $ticket->subject : 'Your booking stays as it was - ' . $ticket->subject,
+            'email'   => true,
+        ], $ticket);
+    }
+
     public static function supportTypeSet(Ticket $ticket, User $actor): void
     {
         Realtime::ticketChanged($ticket, $actor, 'updated');
@@ -223,29 +281,16 @@ class Notifier
 
     // ---------------------------------------------------------------------
 
-    /** Admins triage new tickets: they accept them and assign an engineer. */
+    /** Admins and super admins triage new tickets: they accept them and assign an engineer. */
     private static function admins(Ticket $ticket): Collection
     {
-        // The admins of the ticket's own company, plus JMS itself: super admins and JMS admins (who dispatch JMS engineers).
-        // An old admin who was never placed in any company is not JMS, so they are not included.
-        $jmsCompanies = \App\Models\Company::jmsIds();
-
-        return User::where(fn ($q) => $q->where('role', 'super_admin')
-            ->orWhere(fn ($c) => $c->where('role', 'admin')->where(fn ($w) => $w
-                ->where('company_id', $ticket->company_id)
-                ->orWhere(fn ($j) => $j->whereNull('company_id')->where('company', User::JMS_NAME))
-                ->orWhereIn('company_id', $jmsCompanies))))->get();
+        return User::whereIn('role', ['super_admin', 'admin'])->get();
     }
 
-    /** JMS itself: super admins and JMS admins (the people who dispatch JMS engineers). */
+    /** JMS itself: super admins and admins (the people who dispatch engineers). */
     private static function jmsTeam(): Collection
     {
-        $jmsCompanies = \App\Models\Company::jmsIds();
-
-        return User::where(fn ($q) => $q->where('role', 'super_admin')
-            ->orWhere(fn ($c) => $c->where('role', 'admin')->where(fn ($w) => $w
-                ->where(fn ($j) => $j->whereNull('company_id')->where('company', User::JMS_NAME))
-                ->orWhereIn('company_id', $jmsCompanies))))->get();
+        return User::whereIn('role', ['super_admin', 'admin'])->get();
     }
 
     private static function send(Collection $users, User $actor, array $payload, Ticket $ticket): void

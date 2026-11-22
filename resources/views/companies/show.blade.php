@@ -10,7 +10,7 @@
             'admin'      => 'bg-violet-50 text-violet-700 ring-violet-200',
             'super_admin' => 'bg-amber-50 text-amber-800 ring-amber-300',
         ];
-        $tabs = ['' => 'Everyone', 'admin' => 'Admins', 'it_support' => 'IT Support', 'user' => 'Users'];
+        $tabs = $isJms ? ['' => 'Everyone', 'admin' => 'Admins', 'it_support' => 'IT Engineers'] : ['' => 'Everyone', 'user' => 'Customers'];
         if ($isJms) unset($tabs['user']); // JMS One IT is our own team: no partner users here
         $memberForm  = old('_member') && $errors->any();
         $companyForm = old('_company') && $errors->any();
@@ -192,7 +192,7 @@
                             <div x-ref="picker" x-html="picker" aria-live="polite"></div>
                             <p x-show="loading" class="rounded-lg bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">Loading engineers...</p>
                             <p x-show="failed" x-cloak class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">Could not load the engineers. Close this panel and try again, or <a :href="t.url + '#assign'" class="font-semibold underline">open the full ticket</a>.</p>
-                            <p class="mt-2 text-xs text-slate-500">Only JMS support engineers can be assigned from here.</p>
+                            <p class="mt-2 text-xs text-slate-500">Only our IT Engineers can be assigned from here.</p>
                         </div>
 
                         <div>
@@ -261,7 +261,7 @@
             @if ($members->isEmpty())
                 <div class="px-6 py-14 text-center">
                     <p class="font-semibold text-slate-800">{{ request()->hasAny(['search', 'role']) ? 'No one matches' : 'No members yet' }}</p>
-                    <p class="mt-1 text-sm text-slate-500">{{ request()->hasAny(['search', 'role']) ? 'Try another tab or search.' : ($isJms ? 'Add your first JMS admin or IT engineer.' : 'Add the company admin first; they can add the rest.') }}</p>
+                    <p class="mt-1 text-sm text-slate-500">{{ request()->hasAny(['search', 'role']) ? 'Try another tab or search.' : ($isJms ? 'Add your first JMS admin or IT engineer.' : 'Add the first customer of this company.') }}</p>
                 </div>
             @else
                 <ul class="divide-y divide-slate-100">
@@ -355,7 +355,7 @@
                     <div>
                         <label for="m-role" class="mb-1 block text-sm font-medium text-slate-700">Role</label>
                         <select id="m-role" name="role" class="w-full rounded-lg {{ $memberForm && $errors->has('role') ? $bad : $ok }}">
-                            @foreach ($isJms ? ['admin' => 'Admin', 'it_support' => 'IT Support'] : ['admin' => 'Admin', 'it_support' => 'IT Support', 'user' => 'User'] as $v => $l)
+                            @foreach ($isJms ? ['admin' => 'Admin', 'it_support' => 'IT Engineer'] : ['user' => 'Customer'] as $v => $l)
                                 <option value="{{ $v }}" @selected(old('role', $isJms ? 'it_support' : 'user') === $v)>{{ $l }}</option>
                             @endforeach
                         </select>

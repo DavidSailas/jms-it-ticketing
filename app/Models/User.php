@@ -10,11 +10,17 @@ use Illuminate\Notifications\Notifiable;
 class User extends Authenticatable
 {
     public const ROLE_LABELS = [
-        'user'        => 'User',
-        'it_support'  => 'IT Support',
+        'user'        => 'Customer',
+        'it_support'  => 'IT Engineer',
         'admin'       => 'Admin',
         'super_admin' => 'Super Admin',
     ];
+
+    /**
+     * JMS One IT's own people. They never belong to a partner company.
+     * Everyone else (role "user", shown as Customer) belongs to exactly one partner company.
+     */
+    public const STAFF_ROLES = ['it_support', 'admin', 'super_admin'];
 
     /** What accounts of JMS's own team show as their company. JMS itself has no company record. */
     public const JMS_NAME = 'JMS One IT';
@@ -28,6 +34,7 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
+        'role_id',
         'company',
         'company_id',
         'avatar',
@@ -52,12 +59,22 @@ class User extends Authenticatable
     protected static function booted(): void
     {
         // The company name is copied onto the account so every screen can show it without a lookup.
-        // JMS's own team (IT Support and Admins with no partner company) is shown as part of JMS.
+        // JMS's own people (IT Engineers, Admins, Super Admins) always belong to JMS One IT and never to a partner company.
         static::saving(function (User $u) {
-            if (($u->isDirty('company_id') || $u->isDirty('role')) && $u->role !== 'super_admin') {
-                $u->company = $u->company_id
-                    ? Company::whereKey($u->company_id)->value('name')
-                    : (in_array($u->role, ['it_support', 'admin']) ? self::JMS_NAME : null);
+            // Moved to another account type: the custom role no longer fits, so fall back to that type's standard role.
+            if ($u->role_id && $u->isDirty('role') && ! $u->isDirty('role_id')) {
+                $u->role_id = null;
+            }
+
+            if (in_array($u->role, self::STAFF_ROLES, true)) {
+                $u->company_id = null;
+                $u->company    = self::JMS_NAME;
+
+                return;
+            }
+
+            if ($u->isDirty('company_id') || $u->isDirty('role')) {
+                $u->company = $u->company_id ? Company::whereKey($u->company_id)->value('name') : null;
             }
         });
     }
@@ -67,38 +84,34 @@ class User extends Authenticatable
         return $this->belongsTo(Company::class, 'company_id');
     }
 
-    /** Roles this person may see and manage on the Users page (and find with the search). */
+    /**
+     * Roles this person may see and manage on the Users page (and find with the search).
+     * Super admin -> customers, IT engineers and admins.
+     * Admin       -> customers and IT engineers.
+     * Everyone else manages nobody.
+     */
     public function manageableRoles(): array
     {
-        if ($this->role === 'super_admin') {
-            return ['user', 'it_support', 'admin'];
-        }
-
-        return $this->isJmsAdmin() ? ['it_support'] : ['user', 'it_support'];
+        return match ($this->role) {
+            'super_admin' => ['user', 'it_support', 'admin'],
+            'admin'       => ['user', 'it_support'],
+            default       => [],
+        };
     }
 
     /**
-     * Limit a user query to the signed-in person's own company.
-     * Super admins (JMS) are not limited; a JMS admin is limited to JMS's own team (accounts with no
-     * partner company); someone else with no company sees nobody.
+     * Limit a user query to the people the signed-in person may look up.
+     * Super admins and admins (JMS) are not limited. Engineers and customers look nobody up.
      */
     public function scopeInMyCompany($query)
     {
         $me = auth()->user();
 
-        if (! $me || $me->role === 'super_admin') {
+        if (! $me || in_array($me->role, ['super_admin', 'admin'], true)) {
             return $query;
         }
 
-        if ($me->isJmsAdmin()) {
-            $column = $this->qualifyColumn('company_id');
-
-            return $query->where(fn ($q) => $q->whereNull($column)->orWhereIn($column, Company::jmsIds()));
-        }
-
-        return $me->company_id
-            ? $query->where($this->qualifyColumn('company_id'), $me->company_id)
-            : $query->whereRaw('1 = 0');
+        return $query->whereRaw('1 = 0');
     }
 
     public function tickets()
@@ -111,33 +124,22 @@ class User extends Authenticatable
         return $this->hasMany(ActivityLog::class);
     }
 
-    /**
-     * One of JMS's own engineers: IT Support that belongs to no partner company.
-     * They can be assigned to any partner's ticket (by a super admin) but only ever see tickets assigned to them.
-     */
+    /** One of JMS's own IT Engineers. They only ever see tickets an Admin or Super Admin assigned to them. */
     public function isJmsEngineer(): bool
     {
-        // JMS's own engineers live in two places: no company at all, or attached to the "JMS One IT" company record.
-        return $this->role === 'it_support'
-            && (! $this->company_id || Company::isJmsName($this->companyRecord?->name));
+        return $this->role === 'it_support';
     }
 
-    /** JMS's own IT Support, wherever the account was filed (see isJmsEngineer). */
+    /** JMS's own IT Engineers. */
     public function scopeJmsEngineers($query)
     {
-        return $query->where('role', 'it_support')
-            ->where(fn ($w) => $w->whereNull('company_id')->orWhereIn('company_id', Company::jmsIds()));
+        return $query->where('role', 'it_support');
     }
 
-    /** Everyone who works for JMS itself: super admins, JMS admins and JMS engineers. Never a partner's people. */
+    /** Everyone who works for JMS itself: super admins, admins and IT engineers. Never a partner's people. */
     public function scopeJmsTeam($query)
     {
-        return $query->where(fn ($w) => $w
-            ->where('role', 'super_admin')
-            ->orWhereIn('company_id', Company::jmsIds())
-            ->orWhere(fn ($j) => $j->whereNull('company_id')->where(fn ($k) => $k
-                ->where('role', 'it_support')
-                ->orWhere(fn ($a) => $a->where('role', 'admin')->where('company', self::JMS_NAME)))));
+        return $query->whereIn('role', self::STAFF_ROLES);
     }
 
     public function assignedTickets()
@@ -145,38 +147,56 @@ class User extends Authenticatable
         return $this->hasMany(Ticket::class, 'assigned_to');
     }
 
-    /**
-     * True when the account belongs to JMS itself: it is marked as "JMS One IT" and has no partner company,
-     * or it is attached to JMS One IT's own company record. An old account that was never placed anywhere
-     * (no company at all) is NOT treated as JMS, so it cannot see every partner's tickets by accident.
-     */
+    /** True for JMS One IT's own people. Partner customers never are. */
     public function belongsToJms(): bool
     {
-        return $this->company_id
-            ? Company::isJmsName($this->companyRecord?->name)
-            : Company::isJmsName($this->company);
+        return $this->isStaff();
     }
 
-    /**
-     * An admin of JMS One IT itself (an Admin that belongs to JMS, not to a partner company).
-     * Works like a super admin on tickets (sees every partner, accepts and assigns JMS engineers),
-     * but cannot manage companies, reports or other admins.
-     */
+    /** An Admin of JMS One IT. Works like a super admin on tickets (sees every partner, accepts and assigns engineers). */
     public function isJmsAdmin(): bool
     {
-        return $this->role === 'admin' && $this->belongsToJms();
+        return $this->role === 'admin';
     }
 
-    /** Anyone from JMS who may dispatch JMS engineers to a partner's ticket: super admins and JMS admins. */
+    /** The role record that decides what this person may do (their own, or the standard one for their account type). */
+    public function roleDefinition(): ?Role
+    {
+        return rescue(function () {
+            $role = $this->role_id ? Role::map()->get($this->role_id) : null;
+
+            // A custom role only counts while it still matches the account type.
+            return $role && $role->base_role === $this->role ? $role : Role::forSlug($this->role);
+        }, null, false);
+    }
+
+    /** Super admins can do everything. Everyone else can do what their role allows, within their account type. */
+    public function hasPermission(string $permission): bool
+    {
+        if ($this->role === 'super_admin') {
+            return true;
+        }
+        if (in_array($permission, \App\Support\Permissions::SUPER_ONLY, true)) {
+            return false;
+        }
+
+        $role    = $this->roleDefinition();
+        $granted = $role ? ($role->permissions ?? []) : \App\Support\Permissions::defaultsFor($this->role);
+
+        return in_array($permission, $granted, true)
+            && in_array($this->role, \App\Support\Permissions::basesFor($permission), true);
+    }
+
+    /** Anyone who may accept a ticket and assign an IT Engineer to it (by default admins and super admins). */
     public function canDispatchJms(): bool
     {
-        return $this->role === 'super_admin' || $this->isJmsAdmin();
+        return $this->hasPermission('tickets.assign');
     }
 
-    /** Tickets are logged by people of a partner company: users, and admins who belong to one. JMS's own people do not log tickets. */
+    /** Tickets are logged by the customers of a partner company. JMS's own people do not log tickets. */
     public function canLogTickets(): bool
     {
-        return $this->role === 'user' || ($this->role === 'admin' && (bool) $this->company_id);
+        return $this->role === 'user';
     }
 
     public function isStaff(): bool
@@ -186,11 +206,7 @@ class User extends Authenticatable
 
     public function roleLabel(): string
     {
-        if ($this->isJmsAdmin()) {
-            return 'JMS Admin';
-        }
-
-        return self::ROLE_LABELS[$this->role] ?? ucwords(str_replace('_', ' ', $this->role));
+        return $this->roleDefinition()?->name ?? self::ROLE_LABELS[$this->role] ?? ucwords(str_replace('_', ' ', $this->role));
     }
 
     public function initials(): string

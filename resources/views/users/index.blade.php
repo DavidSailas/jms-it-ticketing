@@ -5,7 +5,7 @@
         $ok  = 'border-slate-300 focus:border-brand-500 focus:ring-brand-500';
         $bad = 'border-red-400 focus:border-red-500 focus:ring-red-500';
         $currentRole = request('role', '');
-        $tabs = ['' => 'All users', 'user' => 'Partners', 'it_support' => 'IT Support', 'admin' => 'Admins', 'super_admin' => 'Super Admins'];
+        $tabs = ['' => 'All users', 'user' => 'Customers', 'it_support' => 'IT Engineers', 'admin' => 'Admins', 'super_admin' => 'Super Admins'];
         // Only show the tabs for roles this person is allowed to see.
         $tabs = array_intersect_key($tabs, array_flip(array_merge([''], $roles)));
         $badge = [
@@ -248,21 +248,22 @@
                         @if ($creating) @error('name') <p role="alert" class="mt-1.5 text-sm text-red-600">{{ $message }}</p> @enderror @endif
                     </div>
                     <div>
-                        @if (auth()->user()->role === 'super_admin')
-                            <label for="company_id" class="mb-1 block text-sm font-medium text-slate-700">Company</label>
-                            <select id="company_id" name="company_id" required class="w-full rounded-lg {{ $creating && $errors->has('company_id') ? $bad : $ok }}">
+                        {{-- Customers belong to a partner company. Admins and IT Engineers always belong to JMS One IT. --}}
+                        <div x-show="role === 'user'" x-cloak>
+                            <label for="company_id" class="mb-1 block text-sm font-medium text-slate-700">Partner company</label>
+                            <select id="company_id" name="company_id" x-bind:required="role === 'user'" x-bind:disabled="role !== 'user'" class="w-full rounded-lg {{ $creating && $errors->has('company_id') ? $bad : $ok }}">
                                 <option value="">Choose a company</option>
-                                <option value="jms" x-bind:disabled="role === 'user'" x-bind:hidden="role === 'user'" @selected($creating && (old('jms_team') || old('company_id') === 'jms'))>JMS One IT (our team)</option>
                                 @foreach (\App\Models\Company::orderBy('name')->get(['id', 'name']) as $c)
-                                    <option value="{{ $c->id }}" @selected($creating && ! old('jms_team') && (string) old('company_id', request('company')) === (string) $c->id)>{{ $c->name }}</option>
+                                    <option value="{{ $c->id }}" @selected($creating && (string) old('company_id', request('company')) === (string) $c->id)>{{ $c->name }}</option>
                                 @endforeach
                             </select>
                             @if ($creating) @error('company_id') <p role="alert" class="mt-1.5 text-sm text-red-600">{{ $message }}</p> @enderror @endif
-                            <p x-show="role !== 'user'" x-cloak class="mt-1.5 text-xs text-slate-500">Choose <strong>JMS One IT (our team)</strong> for our own admins and engineers. Our engineers can be assigned to any partner's tickets.</p>
-                        @else
+                        </div>
+                        <div x-show="role !== 'user'" x-cloak>
                             <label class="mb-1 block text-sm font-medium text-slate-700">Company</label>
-                            <p class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">{{ auth()->user()->company ?: 'Not set' }}</p>
-                        @endif
+                            <p class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">{{ \App\Models\User::JMS_NAME }}</p>
+                            <p class="mt-1.5 text-xs text-slate-500">Admins and IT Engineers are part of our team. Engineers can be assigned to any customer's ticket.</p>
+                        </div>
                     </div>
                     <div>
                         <label for="email" class="mb-1 block text-sm font-medium text-slate-700">Email</label>

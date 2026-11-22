@@ -3,9 +3,9 @@
 {{-- Role chooser: one clear card per role, with a plain-language description of what the role can do. --}}
 @php
     $meta = [
-        'user'       => ['User',        'Submits tickets and follows their progress.',             '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'],
-        'it_support' => ['IT Support',  'Works on assigned tickets and updates the progress.',     '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4 2.6-2.6z"/>'],
-        'admin'      => ['Admin',       'Accepts and assigns tickets, and manages people.',         \App\Support\RoleTheme::SHIELD],
+        'user'       => ['Customer',    'Belongs to a partner company. Submits tickets and sees only their own.',             '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'],
+        'it_support' => ['IT Engineer', 'Part of our team. Works only on the tickets an admin assigns to them.',     '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4 2.6-2.6z"/>'],
+        'admin'      => ['Admin',       'Part of our team. Accepts and assigns tickets, and manages customers and engineers.',         \App\Support\RoleTheme::SHIELD],
     ];
     $shown = array_values(array_filter($roles, fn ($r) => isset($meta[$r])));
 @endphp

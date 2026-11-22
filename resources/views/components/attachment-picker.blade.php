@@ -12,11 +12,14 @@
 
 <div x-data="{
         max: {{ $max }}, maxBytes: {{ $mb * 1048576 }}, files: [], problem: '', over: false,
+        isImage(f) { return /^image\//.test(f.type) || /\.(jpe?g|png|gif|webp)$/i.test(f.name); },
+        preview(f) { return this.isImage(f) ? URL.createObjectURL(f) : null; },
         add(list) {
             this.problem = '';
             for (const f of Array.from(list)) {
                 if (this.files.length >= this.max) { this.problem = 'You can attach up to ' + this.max + ' files at a time.'; break; }
                 if (f.size > this.maxBytes) { this.problem = f.name + ' is larger than {{ $mb }} MB.'; continue; }
+                if (this.files.some(x => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified)) continue;
                 this.files.push(f);
             }
             this.sync();
@@ -45,7 +48,7 @@
            @dragover.prevent="over = true" @dragleave.prevent="over = false" @drop.prevent="over = false; add($event.dataTransfer.files)">
         <input x-ref="input" type="file" name="files[]" multiple accept="{{ \App\Support\Attachments::accept() }}" class="sr-only" @change="add($event.target.files)">
         <svg class="h-6 w-6 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.5 12.7 20.8a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></svg>
-        <span class="text-sm font-medium text-slate-700">Choose files, drop them here, or paste a screenshot</span>
+        <span class="text-sm font-medium text-slate-700">Choose several images or files, drop them here, or paste a screenshot</span>
         <span class="text-xs text-slate-500">{{ \App\Support\Attachments::label() }} &middot; up to {{ $max }} files, {{ $mb }} MB each</span>
     </label>
 
@@ -54,14 +57,24 @@
     @endif
     <p class="mt-1 text-xs text-slate-400">Please do not attach files that show passwords.</p>
 
-    <ul x-show="files.length" x-cloak class="mt-3 space-y-1.5">
+    <p x-show="files.length" x-cloak class="mt-3 text-xs font-medium text-slate-500" x-text="files.length + ' of ' + max + ' files selected'"></p>
+    <ul x-show="files.length" x-cloak class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
         <template x-for="(f, i) in files" :key="i + f.name + f.size">
-            <li class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                <svg class="h-4 w-4 shrink-0 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v4h4"/></svg>
-                <span class="min-w-0 flex-1 truncate text-slate-700" x-text="f.name"></span>
-                <span class="shrink-0 text-xs text-slate-400" x-text="size(f.size)"></span>
-                <button type="button" @click="remove(i)" class="shrink-0 rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-red-400" :aria-label="'Remove ' + f.name">
-                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            <li class="relative overflow-hidden rounded-lg border border-slate-200 bg-white text-sm">
+                <template x-if="isImage(f)">
+                    <img :src="preview(f)" :alt="f.name" class="h-24 w-full object-cover">
+                </template>
+                <template x-if="!isImage(f)">
+                    <div class="flex h-24 items-center justify-center bg-slate-50 text-slate-400">
+                        <svg class="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v4h4M10 12h6M10 16h6"/></svg>
+                    </div>
+                </template>
+                <div class="flex items-center gap-2 px-2 py-1.5">
+                    <span class="min-w-0 flex-1 truncate text-xs text-slate-700" x-text="f.name" :title="f.name"></span>
+                    <span class="shrink-0 text-[11px] text-slate-400" x-text="size(f.size)"></span>
+                </div>
+                <button type="button" @click="remove(i)" class="absolute right-1 top-1 rounded-full bg-white/90 p-1 text-slate-500 shadow hover:bg-red-50 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-red-400" :aria-label="'Remove ' + f.name">
+                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
                 </button>
             </li>
         </template>

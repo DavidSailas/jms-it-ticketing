@@ -92,7 +92,8 @@ class AttachmentsTest extends TestCase
     public function test_the_form_offers_the_attachment_picker(): void
     {
         $this->actingAs($this->owner)->get('/dashboard')->assertOk()->assertSee('Attach screenshots or logs');
-        $this->actingAs($this->acmeAdmin)->get('/tickets/create')->assertOk()->assertSee('Attach screenshots or logs');
+        // Only customers log tickets; JMS admins do not.
+        $this->actingAs($this->acmeAdmin)->get('/tickets/create')->assertForbidden();
     }
 
     public function test_a_partner_can_submit_a_ticket_with_a_screenshot_and_a_log_file(): void
@@ -160,12 +161,12 @@ class AttachmentsTest extends TestCase
         $this->assertStringContainsString('attachment', $r->headers->get('Content-Disposition'));
         $this->assertStringContainsString('db.log', $r->headers->get('Content-Disposition'));
 
-        // Admins of the same company and super admins can open it.
+        // Admins and super admins can open it.
         $this->actingAs($this->acmeAdmin)->get($this->url($ticket, $log))->assertOk();
         $this->actingAs($this->super)->get($this->url($ticket, $log))->assertOk();
 
         // A colleague who did not submit it, another company, and a guest cannot.
-        $this->actingAs($this->colleague)->get($this->url($ticket, $log))->assertForbidden();
+        $this->actingAs($this->colleague)->get($this->url($ticket, $log))->assertNotFound();
         $this->actingAs($this->outsider)->get($this->url($ticket, $log))->assertNotFound();
         $this->actingAsGuest()->get($this->url($ticket, $log))->assertRedirect('/login');
 

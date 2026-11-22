@@ -7,8 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Scope;
 
 /**
- * Keeps every company's tickets private: signed-in company people only ever see their own company's tickets.
- * Super admins and JMS admins (JMS itself) see all companies; JMS engineers see only what is assigned to them. Console commands and queues have no signed-in person, so they are not limited.
+ * Keeps tickets private by role:
+ *  - Super admins and admins (JMS) see every ticket of every partner company.
+ *  - IT engineers (JMS) only see the tickets an admin assigned to them.
+ *  - Customers (partner staff) only see the tickets they submitted themselves, not their colleagues'.
+ * Console commands and queues have no signed-in person, so they are not limited.
  */
 class CompanyScope implements Scope
 {
@@ -16,19 +19,16 @@ class CompanyScope implements Scope
     {
         $user = auth()->user();
 
-        if (! $user || $user->role === 'super_admin' || $user->isJmsAdmin()) {
+        if (! $user || in_array($user->role, ['super_admin', 'admin'], true)) {
             return;
         }
 
-        // JMS's own engineers work across partners, but only ever see the tickets given to them.
-        if ($user->isJmsEngineer()) {
+        if ($user->role === 'it_support') {
             $builder->where($model->qualifyColumn('assigned_to'), $user->id);
 
             return;
         }
 
-        $user->company_id
-            ? $builder->where($model->qualifyColumn('company_id'), $user->company_id)
-            : $builder->whereRaw('1 = 0'); // not attached to a company yet: sees nothing
+        $builder->where($model->qualifyColumn('user_id'), $user->id);
     }
 }

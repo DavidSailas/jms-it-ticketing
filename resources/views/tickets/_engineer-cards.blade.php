@@ -1,19 +1,20 @@
 {{--
-    Grouped engineer cards (JMS support team / company IT team), shared by the ticket page and the quick-assign panel.
+    Engineer cards (our IT Engineers, with live workload), shared by the ticket page and the quick-assign panel.
     Needs: $engineers, $workload. Optional: $ticket (server-side selection), $xmodel (Alpine variable holding the chosen id).
 --}}
 @php($xmodel = $xmodel ?? null)
 @php($ticket = $ticket ?? null)
-@php($groups = $engineers->sortBy(fn ($e) => [$workload[$e->id] ?? 0, $e->name])->groupBy(fn ($e) => $e->isJmsEngineer() ? 'jms' : 'company'))
+@php($clashes = $clashes ?? collect())
+@php($groups = $engineers->sortBy(fn ($e) => [$workload[$e->id] ?? 0, $e->name])->groupBy(fn ($e) => 'jms'))
 @php($selected = $xmodel ? null : (int) old('assigned_to', $ticket?->assigned_to))
 <div class="space-y-4" role="radiogroup" aria-label="IT engineer">
-    @foreach (['jms' => 'JMS support team', 'company' => ($ticket?->company?->name ?? 'Company') . ' IT team'] as $key => $title)
+    @foreach (['jms' => 'IT Engineers'] as $key => $title)
         @continue(! isset($groups[$key]))
         <div>
             <div class="mb-2 flex items-center justify-between">
                 <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">{{ $title }}</span>
                 <span class="rounded-full {{ $key === 'jms' ? 'bg-brand-50 text-brand-700' : 'bg-slate-100 text-slate-600' }} px-2 py-0.5 text-[11px] font-medium">
-                    {{ $key === 'jms' ? 'Our team' : 'Partner' }} &middot; {{ $groups[$key]->count() }}
+                    Our team &middot; {{ $groups[$key]->count() }}
                 </span>
             </div>
             <div class="grid gap-2 sm:grid-cols-2">
@@ -37,6 +38,9 @@
                                         <span class="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">Busy &middot; {{ $n }} active</span>
                                     @else
                                         <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">{{ $n }} active</span>
+                                    @endif
+                                    @if ($clash = $clashes->get($e->id))
+                                        <span class="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-medium text-rose-700" title="{{ $clash->ticket_no }}">Booked {{ $clash->scheduled_for->format('h:i A') }}</span>
                                     @endif
                                     @if ($xmodel)
                                         <span x-show="Number(t.assigned_to) === {{ $e->id }}" x-cloak class="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">Current</span>

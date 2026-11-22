@@ -54,16 +54,16 @@ class DemoDataSeeder extends Seeder
         $sr = Company::create(['name' => 'Sunrise Hotel & Resort', 'phone' => '+63 32 555 0202', 'address' => 'Mactan Island, Lapu-Lapu City']);
         $bv = Company::create(['name' => 'Bayview Medical Clinic', 'phone' => '+63 32 555 0303', 'address' => '88 Osmena Blvd, Cebu City']);
 
-        $nwAdmin = $this->person('Liza Navarro', 'liza@demo.test', 'admin', $nw);
+        $nwAdmin = $this->person('Liza Navarro', 'liza@demo.test', 'user', $nw);
         $carlo   = $this->person('Carlo Mendoza', 'carlo@demo.test', 'user', $nw);
         $jenny   = $this->person('Jenny Aquino', 'jenny@demo.test', 'user', $nw);
-        $ian     = $this->person('Ian Bautista', 'ian@demo.test', 'it_support', $nw); // Northwind's own IT
+        $ian     = $this->person('Ian Bautista', 'ian@demo.test', 'it_support', null); // another JMS engineer
 
-        $this->person('Ramon Ocampo', 'ramon@demo.test', 'admin', $sr);
+        $this->person('Ramon Ocampo', 'ramon@demo.test', 'user', $sr);
         $bea   = $this->person('Bea Lim', 'bea@demo.test', 'user', $sr);
         $dante = $this->person('Dante Cruz', 'dante@demo.test', 'user', $sr);
 
-        $this->person('Karen Uy', 'karen@demo.test', 'admin', $bv);
+        $this->person('Karen Uy', 'karen@demo.test', 'user', $bv);
         $mia  = $this->person('Mia Tan', 'mia@demo.test', 'user', $bv);
         $jose = $this->person('Jose Ramos', 'jose@demo.test', 'user', $bv);
 
@@ -159,11 +159,9 @@ class DemoDataSeeder extends Seeder
         $this->command->info('Added 3 companies, ' . User::where('email', 'like', '%@demo.test')->count() . ' demo people and ' . count($tickets) . ' tickets.');
         $this->command->table(['Role', 'Email', 'Password'], [
             ['Super admin', 'superadmin@jmsoneit.com', 'P@ssw0rd123'],
-            ['JMS admin', 'grace@demo.test', 'P@ssw0rd123'],
-            ['JMS engineer', 'marco@demo.test (also ana@, paolo@)', 'P@ssw0rd123'],
-            ['Partner admin', 'liza@demo.test (Northwind)', 'P@ssw0rd123'],
-            ['Partner staff', 'carlo@demo.test (Northwind)', 'P@ssw0rd123'],
-            ['Partner own IT', 'ian@demo.test (Northwind)', 'P@ssw0rd123'],
+            ['Admin', 'grace@demo.test', 'P@ssw0rd123'],
+            ['IT engineer', 'marco@demo.test (also ana@, paolo@, ian@)', 'P@ssw0rd123'],
+            ['Customer', 'carlo@demo.test (Northwind; also liza@, jenny@)', 'P@ssw0rd123'],
         ]);
     }
 

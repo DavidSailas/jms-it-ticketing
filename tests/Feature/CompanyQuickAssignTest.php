@@ -50,14 +50,16 @@ class CompanyQuickAssignTest extends TestCase
     public function test_the_picker_lists_the_jms_team_for_a_super_admin(): void
     {
         $this->actingAs($this->super)->get(route('tickets.engineer-picker'))
-            ->assertOk()->assertSee('JMS support team')->assertSee('Jun JMS Engineer')->assertSee('Available');
+            ->assertOk()->assertSee('IT Engineers')->assertSee('Jun JMS Engineer')->assertSee('Available');
     }
 
-    public function test_a_partner_admin_cannot_load_the_picker(): void
+    public function test_a_customer_and_an_engineer_cannot_load_the_picker(): void
     {
-        $partnerAdmin = User::factory()->create(['role' => 'admin', 'company_id' => $this->acme->id]);
+        $customer = User::factory()->create(['role' => 'user', 'company_id' => $this->acme->id]);
+        $engineer = User::factory()->create(['role' => 'it_support']);
 
-        $this->actingAs($partnerAdmin)->get(route('tickets.engineer-picker'))->assertForbidden();
+        $this->actingAs($customer)->get(route('tickets.engineer-picker'))->assertForbidden();
+        $this->actingAs($engineer)->get(route('tickets.engineer-picker'))->assertForbidden();
     }
 
     public function test_assigning_from_the_company_page_returns_to_it(): void

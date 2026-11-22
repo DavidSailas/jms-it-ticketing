@@ -308,7 +308,7 @@ class ReportController extends Controller
             ]),
 
             'usersByRole' => $this->labelPieData($usersByRole, [
-                'staff' => 'Staff', 'it_support' => 'IT Support', 'admin' => 'Admin',
+                'staff' => 'Customer', 'it_support' => 'IT Engineer', 'admin' => 'Admin',
             ], [
                 'staff' => '#6366f1', 'it_support' => '#1a6b3c', 'admin' => '#b45309',
             ]),

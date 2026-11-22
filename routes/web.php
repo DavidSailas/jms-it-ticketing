@@ -11,6 +11,7 @@ use App\Http\Controllers\PendingTicketController;
 use App\Http\Controllers\ProfileAvatarController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\RoleController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\TicketBoardController;
@@ -45,7 +46,7 @@ Route::middleware('auth')->group(function () {
 
     // Live "Waiting for acceptance" feed. Must be declared before the tickets resource (tickets/{ticket}).
     Route::get('tickets/pending-feed', PendingTicketController::class)
-        ->middleware('role:admin,super_admin')->name('tickets.pending-feed');
+        ->middleware('permission:tickets.assign')->name('tickets.pending-feed');
 
     // Kanban board for staff. Declared before the tickets resource (tickets/{ticket}).
     Route::middleware('role:it_support,admin,super_admin')->group(function () {
@@ -68,9 +69,15 @@ Route::middleware('auth')->group(function () {
 
     // Quick-assign panel on the company page: the JMS engineer cards, loaded when the panel opens.
     Route::get('tickets/engineer-picker', [TicketController::class, 'engineerPicker'])
-        ->middleware('role:admin,super_admin')->name('tickets.engineer-picker');
+        ->middleware('permission:tickets.assign')->name('tickets.engineer-picker');
     Route::resource('tickets', TicketController::class)->only(['index', 'create', 'store', 'show']);
     Route::post('tickets/{ticket}/cancel', [TicketController::class, 'cancel'])->name('tickets.cancel');
+    // Admin / Super Admin (or any role with the permission): cancel a ticket at any stage, with a reason.
+    Route::post('tickets/{ticket}/staff-cancel', [TicketController::class, 'staffCancel'])
+        ->middleware('permission:tickets.cancel')->name('tickets.staff-cancel');
+    Route::post('tickets/{ticket}/reschedule', [TicketController::class, 'reschedule'])->name('tickets.reschedule');
+    Route::post('tickets/{ticket}/reschedule/decide', [TicketController::class, 'decideReschedule'])
+        ->middleware('permission:tickets.reschedule')->name('tickets.reschedule.decide');
     Route::post('tickets/{ticket}/feedback', [TicketController::class, 'feedback'])->name('tickets.feedback');
     Route::post('tickets/{ticket}/reopen', [TicketController::class, 'reopen'])->name('tickets.reopen');
     Route::post('tickets/{ticket}/comments', [TicketController::class, 'comment'])->name('tickets.comment');
@@ -81,46 +88,57 @@ Route::middleware('auth')->group(function () {
 
     // Engineers (and admins) update the work progress.
     Route::post('tickets/{ticket}/progress', [TicketController::class, 'progress'])
-        ->middleware('role:it_support,admin,super_admin')->name('tickets.progress');
+        ->middleware('permission:tickets.progress')->name('tickets.progress');
 
     // IT Support / admin decide remote vs on-site.
     Route::post('tickets/{ticket}/support-type', [TicketController::class, 'supportType'])
-        ->middleware('role:it_support,admin,super_admin')->name('tickets.support-type');
+        ->middleware('permission:tickets.progress')->name('tickets.support-type');
 
-    // Admin triage: accept the ticket and assign an engineer.
-    Route::post('tickets/{ticket}/request-jms', [TicketController::class, 'requestJms'])
-        ->middleware('role:it_support,admin')->name('tickets.request-jms');
+    // Admin / Super Admin triage: accept the ticket and assign an IT Engineer. Engineers cannot pick tickets themselves.
     Route::post('tickets/{ticket}/assign', [TicketController::class, 'assign'])
-        ->middleware('role:admin,super_admin')->name('tickets.assign');
+        ->middleware('permission:tickets.assign')->name('tickets.assign');
     Route::get('tickets/{ticket}/edit', [TicketController::class, 'edit'])
-        ->middleware('role:admin,super_admin')->name('tickets.edit');
+        ->middleware('permission:tickets.edit')->name('tickets.edit');
     Route::put('tickets/{ticket}/details', [TicketController::class, 'updateDetails'])
-        ->middleware('role:admin,super_admin')->name('tickets.details');
+        ->middleware('permission:tickets.edit')->name('tickets.details');
     Route::patch('tickets/{ticket}', [TicketController::class, 'update'])
-        ->middleware('role:admin,super_admin')->name('tickets.update');
+        ->middleware('permission:tickets.edit')->name('tickets.update');
 
-    // Reports and company management are for super admins (JMS) only.
+    // The workflow guide is for super admins.
     Route::middleware('role:super_admin')->group(function () {
         Route::get('workflow', [WorkflowController::class, 'index'])->name('workflow.index');
         Route::get('workflow/pdf', [WorkflowController::class, 'pdf'])->name('workflow.pdf');
+    });
+
+    // Roles and permissions: super admins only.
+    Route::middleware('permission:roles.manage')->group(function () {
+        Route::get('roles', [RoleController::class, 'index'])->name('roles.index');
+        Route::get('roles/create', [RoleController::class, 'create'])->name('roles.create');
+        Route::post('roles', [RoleController::class, 'store'])->name('roles.store');
+        Route::get('roles/{role}/edit', [RoleController::class, 'edit'])->name('roles.edit');
+        Route::patch('roles/{role}', [RoleController::class, 'update'])->name('roles.update');
+        Route::delete('roles/{role}', [RoleController::class, 'destroy'])->name('roles.destroy');
+        Route::post('roles/{role}/members', [RoleController::class, 'addMember'])->name('roles.members.add');
+        Route::delete('roles/{role}/members/{user}', [RoleController::class, 'removeMember'])->name('roles.members.remove');
+    });
+
+    // Partner companies.
+    Route::middleware('permission:companies.manage')->group(function () {
         Route::get('companies', [CompanyController::class, 'index'])->name('companies.index');
         Route::post('companies', [CompanyController::class, 'store'])->name('companies.store');
         Route::get('companies/{company}', [CompanyController::class, 'show'])->name('companies.show');
         Route::patch('companies/{company}', [CompanyController::class, 'update'])->name('companies.update');
         Route::delete('companies/{company}', [CompanyController::class, 'destroy'])->name('companies.destroy');
         Route::patch('companies/{company}/branding', [BrandingController::class, 'updateFor'])->name('companies.branding');
+    });
 
+    // Reports.
+    Route::middleware('permission:reports.view')->group(function () {
         Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('reports/export', [ReportController::class, 'export'])->name('reports.export');
     });
 
-    // A company admin sets their own company's name, logo and colour.
-    Route::middleware('role:admin')->group(function () {
-        Route::get('branding', [BrandingController::class, 'edit'])->name('branding.edit');
-        Route::patch('branding', [BrandingController::class, 'update'])->name('branding.update');
-    });
-
-    Route::middleware('role:admin,super_admin')->group(function () {
+    Route::middleware('permission:users.manage')->group(function () {
         Route::get('users', [UserController::class, 'index'])->name('users.index');
         Route::post('users', [UserController::class, 'store'])->name('users.store');
         Route::get('users/import-template', [UserController::class, 'importTemplate'])->name('users.import-template');

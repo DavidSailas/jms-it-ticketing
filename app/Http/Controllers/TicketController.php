@@ -14,7 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 /**
- * Flow:  requester submits  ->  admin accepts & assigns an engineer  ->  engineer works it
+ * Flow:  customer submits  ->  admin or super admin accepts & assigns an engineer  ->  engineer works it
  *        (on-site or remote)  ->  resolved  ->  requester confirms / rates (closed) or reopens.
  */
 class TicketController extends Controller
@@ -29,12 +29,12 @@ class TicketController extends Controller
         if ($user->role === 'user') {
             $base->where('user_id', $user->id);
         } elseif ($user->role === 'it_support') {
-            // Engineers only work on what an admin has assigned to them.
+            // Engineers only work on what an admin or super admin has assigned to them.
             $base->where('assigned_to', $user->id);
         }
 
         $counts = (clone $base)->selectRaw('status, count(*) as total')->groupBy('status')->pluck('total', 'status');
-        $needsAssignment = in_array($user->role, self::ADMINS)
+        $needsAssignment = $user->canDispatchJms()
             ? (clone $base)->where('status', 'open')->whereNull('assigned_to')->count()
             : 0;
 
@@ -62,7 +62,7 @@ class TicketController extends Controller
 
     public function create(Request $request)
     {
-        // Partners already see the form on their dashboard; engineers don't log tickets.
+        // Customers already see the form on their dashboard; JMS staff don't log tickets.
         if ($request->user()->role === 'user') {
             return redirect()->route('dashboard');
         }
@@ -73,7 +73,7 @@ class TicketController extends Controller
 
     public function store(Request $request)
     {
-        // Tickets are logged by the people of a partner company; JMS's own people (super admins, JMS admins) belong to none.
+        // Tickets are logged by customers (people of a partner company). JMS's own people do not log tickets.
         abort_unless($request->user()->canLogTickets(), 403);
 
         $data = $request->validate([
@@ -133,7 +133,7 @@ class TicketController extends Controller
             ->when($user->role === 'user', fn ($q) => $q->where('action', '!=', 'note_added'))
             ->oldest('created_at')->get();
 
-        $isAdmin   = in_array($user->role, self::ADMINS);
+        $isAdmin   = $user->canDispatchJms();
         $engineers = $isAdmin ? $ticket->assignableEngineers($user) : collect();
         $workload  = $isAdmin
             ? Ticket::whereIn('status', ['assigned', 'in_progress', 'on_hold'])->whereNotNull('assigned_to')
@@ -146,7 +146,10 @@ class TicketController extends Controller
                 ->map(fn ($r) => ['id' => $r->id, 'title' => $r->title, 'text' => $r->renderFor($ticket, $user)])->values()
             : collect();
 
-        return view('tickets.show', compact('ticket', 'comments', 'timeline', 'engineers', 'workload', 'cannedReplies'));
+        // Engineers who already have a booking close to this ticket's time (admins only).
+        $clashes = $isAdmin ? Ticket::engineerClashes($ticket->scheduled_for, $ticket->id) : collect();
+
+        return view('tickets.show', compact('ticket', 'comments', 'timeline', 'engineers', 'workload', 'cannedReplies', 'clashes'));
     }
 
     /** Admin / Super Admin: edit what the requester submitted (details and schedule). */
@@ -193,6 +196,13 @@ class TicketController extends Controller
 
         if ($changed->isEmpty()) {
             return redirect()->route('tickets.show', $ticket)->with('success', 'No changes were made.');
+        }
+
+        // An admin set the time directly, so any pending customer request is now out of date.
+        if ($changed->contains('schedule')) {
+            $ticket->newQueryWithoutScopes()->whereKey($ticket->id)->update([
+                'reschedule_requested_for' => null, 'reschedule_reason' => null, 'reschedule_requested_at' => null,
+            ]);
         }
 
         $ticket = $ticket->fresh();
@@ -276,11 +286,21 @@ class TicketController extends Controller
             'support_type' => ['required', Rule::in(array_keys(Ticket::SUPPORT_TYPES))],
             'priority'     => ['required', Rule::in(Ticket::PRIORITIES)],
             'note'         => 'nullable|string|max:500',
+            'confirm_clash' => 'nullable|boolean',
         ], [
             'assigned_to.required' => 'Choose the engineer who will handle this ticket.',
-            'assigned_to.in'       => 'Choose an IT Support engineer from the list.',
+            'assigned_to.in'       => 'Choose an IT Engineer from the list.',
             'support_type.required' => 'Choose on-site or remote support.',
         ]);
+
+        // Double-booking guard: the chosen engineer already has a visit or call around this time.
+        if (! $request->boolean('confirm_clash') && ($clash = Ticket::engineerClashes($ticket->scheduled_for, $ticket->id)->get((int) $data['assigned_to']))) {
+            $name = User::whereKey($data['assigned_to'])->value('name');
+
+            return back()->withInput()->with('error',
+                "{$name} already has {$clash->ticket_no} booked for " . $clash->scheduled_for->format('M d, Y h:i A')
+                . ' (within ' . Ticket::BOOKING_WINDOW_MINUTES . ' minutes of this one). Pick another engineer, or open the ticket and tick "Assign anyway" to confirm.');
+        }
 
         $actor = $request->user();
         $old = $ticket->only(['status', 'priority', 'assigned_to']);
@@ -305,48 +325,6 @@ class TicketController extends Controller
             "Accepted {$ticket->ticket_no} and assigned it to {$ticket->assignee->name} ({$ticket->supportTypeLabel()})", $ticket);
 
         return back()->with('success', "Ticket accepted and assigned to {$ticket->assignee->name}.");
-    }
-
-    /**
-     * A partner company's admin (or the company's own engineer holding the ticket) asks JMS support to take over a
-     * ticket they cannot solve. This does NOT assign a JMS engineer: the ticket goes back to "waiting for acceptance"
-     * flagged "JMS requested", and a JMS admin or super admin accepts it and chooses the engineer.
-     */
-    public function requestJms(Request $request, Ticket $ticket)
-    {
-        $user = $request->user();
-        $this->authorizeView($user, $ticket);
-
-        abort_unless($user->company_id && ! $user->canDispatchJms()
-            && ($user->role === 'admin' || ($user->role === 'it_support' && (int) $ticket->assigned_to === (int) $user->id)), 403);
-
-        if ($ticket->isFinished()) {
-            return back()->with('error', 'This ticket is already ' . strtolower($ticket->statusLabel()) . '.');
-        }
-        if ($ticket->isLockedToJms($user)) {
-            return back()->with('error', 'JMS support is already handling this ticket.');
-        }
-        if ($ticket->isAskingForJms()) {
-            return back()->with('error', 'JMS support has already been asked to take over this ticket.');
-        }
-
-        $data = $request->validate([
-            'jms_note' => ['required', 'string', 'min:10', 'max:1000'],
-        ], [
-            'jms_note.required' => 'Tell JMS what you already tried, so they can start faster.',
-            'jms_note.min'      => 'Please add a little more detail (at least 10 characters).',
-        ]);
-
-        $previous = $ticket->assigned_to;
-
-        $ticket->update(['assigned_to' => null, 'status' => 'open', 'jms_requested_at' => now()]);
-        $ticket->comments()->create(['user_id' => $user->id, 'body' => 'Support requested from JMS: ' . trim($data['jms_note']), 'is_internal' => false]);
-
-        $ticket = $ticket->fresh();
-        Notifier::jmsRequested($ticket, $user, $previous);
-        Activity::record($user, 'ticket_updated', "Asked JMS support to take over {$ticket->ticket_no}", $ticket);
-
-        return back()->with('success', 'JMS support has been asked to take over this ticket. They will assign an engineer.');
     }
 
     /** Engineer: start, pause or finish the work. */
@@ -422,6 +400,144 @@ class TicketController extends Controller
         Activity::record($user, 'ticket_cancelled', "Cancelled {$ticket->ticket_no}: {$ticket->subject}", $ticket);
 
         return redirect()->route('tickets.index')->with('success', "Ticket {$ticket->ticket_no} was cancelled.");
+    }
+
+    /**
+     * Requester: move the booked date/time.
+     *  - not accepted yet  -> the new time applies straight away.
+     *  - engineer assigned -> it becomes a request that an admin, super admin or the engineer approves or declines.
+     */
+    public function reschedule(Request $request, Ticket $ticket)
+    {
+        $user = $request->user();
+        abort_unless($ticket->user_id === $user->id, 403);
+
+        if ($reason = $ticket->rescheduleBlockedReason()) {
+            return back()->with('error', $reason);
+        }
+
+        $data = $request->validate([
+            'scheduled_for' => ['required', 'date', $this->scheduleRules($ticket)[3]],
+            'reason'        => 'nullable|string|max:500',
+        ], [
+            'scheduled_for.required' => 'Pick the new date and time.',
+            'scheduled_for.date'     => 'Enter a valid date and time.',
+        ]);
+
+        $new = Carbon::parse($data['scheduled_for']);
+
+        if ($ticket->scheduled_for && $ticket->scheduled_for->format('Y-m-d H:i') === $new->format('Y-m-d H:i')) {
+            return back()->with('error', 'That is the time already booked. Pick a different date or time.');
+        }
+
+        if (! $ticket->needsRescheduleApproval()) {
+            $ticket->update([
+                'scheduled_for' => $new,
+                'reschedule_requested_for' => null, 'reschedule_reason' => null, 'reschedule_requested_at' => null,
+            ]);
+
+            if (! empty($data['reason'])) {
+                $ticket->comments()->create(['user_id' => $user->id, 'body' => 'Rescheduled by requester: ' . $data['reason'], 'is_internal' => false]);
+            }
+
+            Notifier::rescheduleApplied($ticket->fresh(), $user);
+            Activity::record($user, 'ticket_rescheduled', "Rescheduled {$ticket->ticket_no} to " . $new->format('M d, Y h:i A'), $ticket);
+
+            return back()->with('success', 'Your booking was moved to ' . $new->format('M d, Y h:i A') . '.');
+        }
+
+        $ticket->update([
+            'reschedule_requested_for' => $new,
+            'reschedule_reason'        => $data['reason'] ?? null,
+            'reschedule_requested_at'  => now(),
+        ]);
+
+        Notifier::rescheduleRequested($ticket->fresh(), $user);
+        Activity::record($user, 'ticket_reschedule_requested', "Asked to move {$ticket->ticket_no} to " . $new->format('M d, Y h:i A'), $ticket);
+
+        return back()->with('success', 'Your request was sent. The booking stays as it is until our team approves the new time.');
+    }
+
+    /** Admin, super admin or the assigned engineer: approve or decline the customer's request to move the booking. */
+    public function decideReschedule(Request $request, Ticket $ticket)
+    {
+        $actor = $request->user();
+        abort_unless($actor->hasPermission('tickets.reschedule')
+            && ($actor->role !== 'it_support' || (int) $ticket->assigned_to === (int) $actor->id), 403);
+
+        if (! $ticket->hasPendingReschedule()) {
+            return back()->with('error', 'There is no pending reschedule request on this ticket.');
+        }
+
+        $data = $request->validate([
+            'decision' => ['required', Rule::in(['approve', 'decline'])],
+            'note'     => 'nullable|string|max:500',
+        ]);
+
+        $requested = $ticket->reschedule_requested_for;
+        $approve   = $data['decision'] === 'approve';
+
+        if ($approve && $requested->lte(now())) {
+            return back()->with('error', 'The requested time has already passed. Decline it and ask the customer to pick a new time.');
+        }
+
+        if ($approve && $ticket->assigned_to && ! $request->boolean('confirm_clash')
+            && ($clash = Ticket::engineerClashes($requested, $ticket->id)->get((int) $ticket->assigned_to))) {
+            return back()->with('error',
+                "The assigned engineer already has {$clash->ticket_no} booked for " . $clash->scheduled_for->format('M d, Y h:i A')
+                . '. Tick "Approve anyway" to confirm, or decline and suggest another time.');
+        }
+
+        $ticket->update([
+            'scheduled_for'            => $approve ? $requested : $ticket->scheduled_for,
+            'reschedule_requested_for' => null,
+            'reschedule_reason'        => null,
+            'reschedule_requested_at'  => null,
+        ]);
+
+        $line = $approve
+            ? 'Reschedule approved: your booking is now ' . $requested->format('M d, Y h:i A') . '.'
+            : 'Reschedule declined: your booking stays as ' . ($ticket->scheduled_for ? $ticket->scheduled_for->format('M d, Y h:i A') : 'as soon as possible') . '.';
+        if (! empty($data['note'])) {
+            $line .= ' ' . $data['note'];
+        }
+        $ticket->comments()->create(['user_id' => $actor->id, 'body' => $line, 'is_internal' => false]);
+
+        Notifier::rescheduleDecided($ticket->fresh(), $actor, $approve);
+        Activity::record($actor, $approve ? 'ticket_reschedule_approved' : 'ticket_reschedule_declined',
+            ($approve ? 'Approved' : 'Declined') . " the reschedule request on {$ticket->ticket_no}", $ticket);
+
+        return back()->with('success', $approve ? 'Reschedule approved. The customer was notified.' : 'Reschedule declined. The customer was notified.');
+    }
+
+    /**
+     * Admin or super admin: cancel a ticket at any stage. Customers can only cancel before an engineer is assigned,
+     * so this is how an assigned or in-progress ticket gets cancelled. A reason is required: the customer sees it.
+     */
+    public function staffCancel(Request $request, Ticket $ticket)
+    {
+        $actor = $request->user();
+
+        if ($ticket->isFinished()) {
+            return back()->with('error', "{$ticket->ticket_no} is already " . strtolower($ticket->statusLabel()) . '.');
+        }
+
+        $data = $request->validate(['reason' => 'required|string|min:5|max:500'], [
+            'reason.required' => 'Tell the customer why the ticket is being cancelled.',
+            'reason.min'      => 'Please write a little more (at least 5 characters).',
+        ]);
+
+        $ticket->update([
+            'status' => 'cancelled', 'resolved_at' => null,
+            'reschedule_requested_for' => null, 'reschedule_reason' => null, 'reschedule_requested_at' => null,
+        ]);
+
+        $ticket->comments()->create(['user_id' => $actor->id, 'body' => 'Cancelled by JMS One IT: ' . $data['reason'], 'is_internal' => false]);
+
+        Notifier::ticketCancelledByStaff($ticket->fresh(), $actor);
+        Activity::record($actor, 'ticket_cancelled_by_staff', "Cancelled {$ticket->ticket_no}: {$ticket->subject}", $ticket);
+
+        return redirect()->route('tickets.show', $ticket)->with('success', "Ticket {$ticket->ticket_no} was cancelled and the customer was notified.");
     }
 
     /** Requester: "yes, it's fixed" - rate the support and close the ticket. */

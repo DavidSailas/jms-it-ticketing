@@ -58,7 +58,7 @@ class ReportsTest extends TestCase
         }
 
         $this->actingAs($super)->get('/reports?range=this_month')->assertOk()
-            ->assertSee('Tickets received')->assertSee('Engineer performance')->assertSee('IT Support')->assertSee('5 / 5');
+            ->assertSee('Tickets received')->assertSee('Engineer performance')->assertSee('IT Engineer')->assertSee('5 / 5');
     }
 
     public function test_custom_range_handles_swapped_empty_and_invalid_dates(): void

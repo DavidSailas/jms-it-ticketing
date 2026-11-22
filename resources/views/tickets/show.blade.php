@@ -4,15 +4,13 @@
     @php
         $me         = auth()->user();
         $isOwner    = $me->id === $ticket->user_id;
-        $isAdmin    = in_array($me->role, ['admin', 'super_admin']);
+        $isAdmin    = $me->canDispatchJms();
+        $canEdit    = $me->hasPermission('tickets.edit');
+        $canCancel  = $me->hasPermission('tickets.cancel');
         $isEngineer = $me->role === 'it_support';
         $isStaff    = $me->isStaff();
-        $jmsLocked  = $isAdmin && $ticket->isLockedToJms($me); // JMS dispatched it: a partner admin can no longer reassign it
         $final      = $ticket->isFinished();
-        $isJms      = $me->canDispatchJms();                // super admin or JMS admin: the only people who dispatch JMS engineers
-        $askingJms  = $ticket->isAskingForJms();            // the company asked JMS to take over, and nobody has accepted yet
-        $canAskJms  = ! $isJms && $me->company_id && ! $final && ! $jmsLocked && ! $askingJms
-                      && ($me->role === 'admin' || ($isEngineer && (int) $ticket->assigned_to === (int) $me->id));
+        $isJms      = $me->canDispatchJms();                // admins and super admins: the only people who accept and assign tickets
         $cancelled  = $ticket->status === 'cancelled';
         $steps = ['open' => 'Submitted', 'assigned' => 'Assigned', 'in_progress' => 'In progress', 'resolved' => 'Resolved', 'closed' => 'Closed'];
         $idx = match ($ticket->status) { 'open' => 0, 'assigned' => 1, 'in_progress', 'on_hold' => 2, 'resolved' => 3, 'closed' => 4, default => -1 };
@@ -54,14 +52,13 @@
                 </div>
                 <div class="flex items-start justify-between gap-3">
                     <h2 class="text-xl font-bold text-brand-800">{{ $ticket->subject }}</h2>
-                    @if ($isAdmin && ! in_array($ticket->status, ['cancelled', 'closed']))
+                    @if ($canEdit && ! in_array($ticket->status, ['cancelled', 'closed']))
                         <a href="{{ route('tickets.edit', $ticket) }}" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50">
                             <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4zM13.5 6.5l4 4"/></svg> Edit
                         </a>
                     @endif
                 </div>
                 <p class="mt-1 text-xs text-slate-500">Submitted by {{ $ticket->user->name }} <x-admin-badge :user="$ticket->user" class="align-middle" /> &middot; {{ $ticket->created_at->format('M d, Y h:i A') }}</p>
-                @if ($askingJms) <x-jms-requested-badge :ticket="$ticket" class="mt-2" /> @endif
 
                 @if ($cancelled)
                     <div class="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">This ticket was cancelled and is no longer being worked on.</div>
@@ -183,27 +180,8 @@
         {{-- Right column --}}
         <div class="space-y-6">
 
-            {{-- Partner admin: JMS is on it --}}
-            @if ($jmsLocked && ! $final)
-                <div class="rounded-2xl border border-slate-200 bg-indigo-50 p-5 text-sm text-indigo-800">
-                    <p class="font-semibold text-indigo-700">Handled by JMS support</p>
-                    <p class="mt-1 text-indigo-800">{{ $ticket->assignee->name }} from JMS is working on this ticket. Use the reply box to add details or ask for an update.</p>
-                </div>
-            @endif
-
-            {{-- JMS support was requested --}}
-            @if ($askingJms && $isStaff)
-                <div class="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-                    <p class="font-semibold text-amber-800">{{ $isJms ? 'JMS support was requested' : 'Waiting for JMS support' }}</p>
-                    <p class="mt-1">
-                        @if ($isJms) The company could not solve this ticket and asked JMS to take over. Accept it below and choose a JMS engineer.
-                        @else JMS has been notified and will assign one of its engineers. You will be told as soon as they do. @endif
-                    </p>
-                </div>
-            @endif
-
             {{-- Admin: accept & assign --}}
-            @if ($isAdmin && ! $final && ! $jmsLocked && ($isJms || $engineers->isNotEmpty()))
+            @if ($isAdmin && ! $final)
                 <form id="assign" method="POST" action="{{ route('tickets.assign', $ticket) }}"
                       class="scroll-mt-24 space-y-4 rounded-2xl border bg-white p-5 shadow-sm {{ $ticket->assigned_to ? 'border-slate-200' : 'border-violet-300 ring-4 ring-violet-100' }}">
                     @csrf
@@ -214,16 +192,21 @@
 
                     <div>
                         <span class="mb-2 block text-sm font-medium text-slate-700">IT engineer</span>
-                        @include('tickets._engineer-cards', ['engineers' => $engineers, 'workload' => $workload, 'ticket' => $ticket])
+                        @include('tickets._engineer-cards', ['engineers' => $engineers, 'workload' => $workload, 'ticket' => $ticket, 'clashes' => $clashes])
+                        @if ($clashes->isNotEmpty())
+                            <div class="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                                <p class="font-medium">Possible double-booking</p>
+                                <p>{{ $clashes->count() === 1 ? 'One engineer already has' : $clashes->count() . ' engineers already have' }} a visit or call within {{ \App\Models\Ticket::BOOKING_WINDOW_MINUTES }} minutes of {{ $ticket->scheduled_for->format('M d, h:i A') }} (marked "Booked" above). Choose someone else, or confirm below.</p>
+                                <label class="mt-2 flex items-center gap-2 font-medium">
+                                    <input type="checkbox" name="confirm_clash" value="1" class="rounded border-rose-300 text-rose-600 focus:ring-rose-500" @checked(old('confirm_clash'))>
+                                    Assign anyway
+                                </label>
+                            </div>
+                        @endif
                         @if ($engineers->isEmpty())
-                            <p class="mt-1 text-xs text-amber-700">
-                                @if ($isJms) No JMS support engineers yet. Create one under Users (choose "JMS One IT (our team)"). @else Your company has no IT engineer yet. @endif
-                            </p>
+                            <p class="mt-1 text-xs text-amber-700">No IT Engineers yet. Create one under Users.</p>
                         @else
-                            <p class="mt-1 text-xs text-slate-500">
-                                @if ($isJms) Only JMS support engineers can be assigned from here. A partner company's own IT team is assigned by that company's admin.
-                                @else Choose one of your company's IT engineers. JMS engineers are assigned by JMS: use the Need JMS support box below if your team cannot solve it. @endif
-                            </p>
+                            <p class="mt-1 text-xs text-slate-500">Only Admins and Super Admins assign tickets. The engineer will see this ticket on their own dashboard.</p>
                         @endif
                         @error('assigned_to') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
                     </div>
@@ -256,26 +239,6 @@
                     </div>
 
                     <button class="w-full rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700">{{ $ticket->assigned_to ? 'Save assignment' : 'Accept & assign' }}</button>
-                </form>
-            @elseif ($isAdmin && ! $final && ! $jmsLocked)
-                {{-- A partner admin whose company has no IT engineer: JMS does the dispatching. --}}
-                <div class="rounded-2xl border border-slate-200 bg-white p-5 text-sm shadow-sm">
-                    <p class="font-semibold text-brand-800">JMS will assign an engineer</p>
-                    <p class="mt-1 text-slate-600">Your company has no IT engineer of its own, so JMS support accepts this ticket and assigns one of its engineers. You can follow progress on this page and in your notifications.</p>
-                </div>
-            @endif
-
-            {{-- Partner admin or the company's own engineer: hand a ticket they cannot solve to JMS --}}
-            @if ($canAskJms)
-                <form method="POST" action="{{ route('tickets.request-jms', $ticket) }}" class="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                    @csrf
-                    <div>
-                        <h3 class="font-semibold text-brand-800">Need JMS support?</h3>
-                        <p class="text-xs text-slate-500">If your team cannot solve this, ask JMS to take over. JMS reviews the request and assigns one of its engineers.</p>
-                    </div>
-                    <textarea name="jms_note" rows="3" maxlength="1000" required class="{{ $field }}" placeholder="What did you already try? What does JMS need to know?">{{ old('jms_note') }}</textarea>
-                    @error('jms_note') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
-                    <button onclick="return confirm('Ask JMS support to take over this ticket?')" class="w-full rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-700">Request JMS support</button>
                 </form>
             @endif
 
@@ -349,6 +312,96 @@
                     <button type="button" x-data x-on:click="$dispatch('open-modal', 'cancel-{{ $ticket->id }}')" class="mt-3 w-full rounded-lg px-4 py-2 text-sm font-semibold text-rose-700 ring-1 ring-rose-200 hover:bg-rose-50">Cancel ticket</button>
                 </div>
                 @include('tickets._cancel-modal', ['ticket' => $ticket])
+            @endif
+
+            {{-- Requester: why cancel is not offered once an engineer is assigned --}}
+            @if ($isOwner && ! $final && ! $cancelled && ! $ticket->isCancellable())
+                <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                    <p class="font-medium text-slate-800">Need to cancel?</p>
+                    <p class="mt-1">An engineer is already assigned, so this ticket can no longer be cancelled online. Write a reply below and our team will cancel it for you.</p>
+                </div>
+            @endif
+
+            {{-- Admin / Super Admin: cancel a ticket at any stage --}}
+            @if ($canCancel && ! $final && ! $cancelled)
+                <details class="rounded-2xl border border-rose-200 bg-white p-5 shadow-sm" @if ($errors->has('reason')) open @endif>
+                    <summary class="cursor-pointer text-sm font-semibold text-rose-700">Cancel this ticket</summary>
+                    <form method="POST" action="{{ route('tickets.staff-cancel', $ticket) }}" class="mt-3 space-y-3"
+                          onsubmit="return confirm('Cancel {{ $ticket->ticket_no }}? The customer{{ $ticket->assigned_to ? ' and the assigned engineer' : '' }} will be notified.')">
+                        @csrf
+                        <p class="text-xs text-slate-500">The customer{{ $ticket->assigned_to ? ' and the assigned engineer are' : ' is' }} notified and sees your reason.</p>
+                        <textarea name="reason" rows="3" maxlength="500" required class="{{ $field }}" placeholder="Reason for cancelling (the customer will see this)">{{ old('reason') }}</textarea>
+                        @error('reason') <p role="alert" class="text-sm text-red-600">{{ $message }}</p> @enderror
+                        <button class="w-full rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700">Cancel ticket</button>
+                    </form>
+                </details>
+            @endif
+
+            {{-- Requester: reschedule the booking --}}
+            @if ($isOwner && ! $final && ! $cancelled)
+                <?php $blocked = $ticket->rescheduleBlockedReason(); ?>
+                <div class="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm">
+                    <h3 class="font-semibold text-slate-800">Reschedule</h3>
+                    <p class="mt-1 text-sm text-slate-500">Currently: {{ $ticket->whenLabel() }}</p>
+
+                    @if ($ticket->hasPendingReschedule())
+                        <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                            <p class="font-medium">Waiting for approval</p>
+                            <p>You asked to move it to {{ $ticket->reschedule_requested_for->format('M d, Y h:i A') }}. The booking stays as it is until our team answers.</p>
+                        </div>
+                    @endif
+
+                    @if ($blocked)
+                        <p class="mt-3 text-sm text-slate-500">{{ $blocked }}</p>
+                    @else
+                        <details class="mt-3" @if ($errors->has('scheduled_for')) open @endif>
+                            <summary class="cursor-pointer text-sm font-semibold text-amber-700 hover:underline">{{ $ticket->hasPendingReschedule() ? 'Change my request' : 'Pick a new date and time' }}</summary>
+                            <form method="POST" action="{{ route('tickets.reschedule', $ticket) }}" class="mt-3 space-y-3">
+                                @csrf
+                                @if ($ticket->needsRescheduleApproval())
+                                    <p class="text-xs text-slate-500">An engineer is already assigned, so our team needs to approve the new time.</p>
+                                @endif
+                                <x-datetime-picker name="scheduled_for" :value="null" :now="now()->format('Y-m-d H:i')" :lead="30" :invalid="$errors->has('scheduled_for')" />
+                                @error('scheduled_for') <p role="alert" class="text-sm text-red-600">{{ $message }}</p> @enderror
+                                <textarea name="reason" rows="2" maxlength="500" class="{{ $field }}" placeholder="Reason (optional)">{{ old('reason') }}</textarea>
+                                <button class="w-full rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700">{{ $ticket->needsRescheduleApproval() ? 'Send request' : 'Move booking' }}</button>
+                            </form>
+                        </details>
+                    @endif
+                </div>
+            @endif
+
+            {{-- Staff: approve or decline the customer's reschedule request --}}
+            @if ($ticket->hasPendingReschedule() && ($isJms || ($isEngineer && (int) $ticket->assigned_to === $me->id)))
+                <div class="rounded-2xl border border-orange-200 bg-orange-50 p-5 shadow-sm">
+                    <h3 class="font-semibold text-orange-900">Reschedule request</h3>
+                    <p class="mt-1 text-sm text-orange-900">
+                        {{ $ticket->user->name }} asks to move this from
+                        <span class="font-medium">{{ $ticket->scheduled_for ? $ticket->scheduled_for->format('M d, Y h:i A') : 'as soon as possible' }}</span>
+                        to <span class="font-medium">{{ $ticket->reschedule_requested_for->format('M d, Y h:i A') }}</span>.
+                    </p>
+                    @if ($ticket->reschedule_reason)
+                        <p class="mt-1 text-sm text-orange-800">Reason: {{ $ticket->reschedule_reason }}</p>
+                    @endif
+                    <form method="POST" action="{{ route('tickets.reschedule.decide', $ticket) }}" class="mt-3 space-y-2">
+                        @csrf
+                        @php($approveClash = \App\Models\Ticket::engineerClashes($ticket->reschedule_requested_for, $ticket->id)->get((int) $ticket->assigned_to))
+                        @if ($approveClash)
+                            <div class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                                <p>The assigned engineer already has {{ $approveClash->ticket_no }} at {{ $approveClash->scheduled_for->format('M d, h:i A') }}.</p>
+                                <label class="mt-1 flex items-center gap-2 font-medium">
+                                    <input type="checkbox" name="confirm_clash" value="1" class="rounded border-rose-300 text-rose-600 focus:ring-rose-500">
+                                    Approve anyway
+                                </label>
+                            </div>
+                        @endif
+                        <textarea name="note" rows="2" maxlength="500" class="{{ $field }}" placeholder="Note to the customer (optional)"></textarea>
+                        <div class="flex gap-2">
+                            <button name="decision" value="approve" class="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Approve</button>
+                            <button name="decision" value="decline" class="flex-1 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-rose-700 ring-1 ring-rose-200 hover:bg-rose-50">Decline</button>
+                        </div>
+                    </form>
+                </div>
             @endif
 
             {{-- Staff: where to go / how to reach the requester --}}
@@ -430,7 +483,7 @@
             </div>
 
             {{-- Admin: manual override --}}
-            @if ($isAdmin && ! $jmsLocked)
+            @if ($canEdit)
                 <details class="{{ $card }} p-5">
                     <summary class="cursor-pointer text-sm font-semibold text-slate-700">Advanced: override status</summary>
                     <form method="POST" action="{{ route('tickets.update', $ticket) }}" class="mt-4 space-y-4">

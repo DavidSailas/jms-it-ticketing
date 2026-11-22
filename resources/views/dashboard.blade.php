@@ -43,11 +43,13 @@
                     <span class="text-xs text-brand-200">{{ now()->format('l, F j, Y') }}</span>
                 </div>
                 <h2 class="mt-1.5 text-xl font-bold tracking-tight sm:text-2xl">{{ $greeting }}, {{ $first }}</h2>
-                <p class="mt-0.5 max-w-2xl text-sm text-brand-100">{{ $isSuper ? 'Full control of tickets, accounts and sign-ins in one place.' : ($user->isJmsAdmin() ? 'Accept new tickets from every partner, dispatch our JMS engineers and keep every request on track.' : 'Accept new tickets, assign your engineers and keep every request on track.') }}</p>
+                <p class="mt-0.5 max-w-2xl text-sm text-brand-100">{{ $isSuper ? 'Full control of tickets, accounts and sign-ins in one place.' : 'Accept new tickets from every partner, assign our IT Engineers and keep every request on track.' }}</p>
             </div>
             <div class="flex shrink-0 flex-wrap gap-2">
                 @if ($isSuper)
                     <a href="{{ route('users.index') }}" class="rounded-lg bg-amber-400 px-3.5 py-2 text-sm font-semibold text-brand-900 shadow-sm transition hover:bg-amber-300">Manage accounts</a>
+                    <a href="{{ route('companies.index') }}" class="{{ $ghost }}">Companies</a>
+                    <a href="{{ route('reports.index') }}" class="{{ $ghost }}">Reports</a>
                 @else
                     <a href="{{ route('tickets.index', ['status' => 'unassigned']) }}" class="rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-brand-800 shadow-sm transition hover:bg-brand-50">
                         Review queue
@@ -65,14 +67,14 @@
 
     {{-- KPI cards: the numbers count up and stay live (see resources/js/charts.js) --}}
     <div x-data x-init="$store.dash.init(@js($stats))" hidden></div>
-    <div class="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+    <div class="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
         @foreach ($cards as [$label, $value, $href, $tone, $paths, $key])
             <a href="{{ $href }}" class="group flex items-center gap-3 rounded-xl border bg-white p-3 shadow-sm transition hover:border-brand-200 hover:shadow-md {{ $label === 'Overdue (SLA)' && $value > 0 ? 'border-rose-200' : 'border-slate-200' }}">
                 <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg {{ $tone }}">{!! $svg($paths) !!}</span>
                 <div class="min-w-0">
                 <p class="text-2xl font-bold leading-none tracking-tight text-slate-900 tabular-nums"
                    x-data x-count="{{ $key === 'unassigned' ? '$store.pending.count' : '$store.dash.kpis.' . $key }}">{{ $value }}</p>
-                <p class="mt-1 truncate text-xs font-medium text-slate-500">{{ $label }}</p>
+                <p class="mt-1 text-xs font-medium leading-tight text-slate-500">{{ $label }}</p>
                 </div>
             </a>
         @endforeach
@@ -331,7 +333,7 @@
                             <div class="h-1.5 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full bg-indigo-500" style="width: {{ $e->active_tickets / $loadMax * 100 }}%"></div></div>
                         </div>
                     @empty
-                        <p class="text-sm text-slate-500">No IT Support accounts yet. Add one from User Management.</p>
+                        <p class="text-sm text-slate-500">No IT Engineer accounts yet. Add one from User Management.</p>
                     @endforelse
                 </div>
             </section>

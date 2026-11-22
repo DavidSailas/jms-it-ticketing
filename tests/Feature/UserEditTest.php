@@ -33,9 +33,10 @@ class UserEditTest extends TestCase
         $this->assertSame('Renamed Person', $user->name);
         $this->assertSame('renamed.person', $user->username);
         $this->assertSame('renamed@partner.com', $user->email);
-        // A company admin cannot move people to another company; only JMS can.
-        $this->assertSame('Partner Company Inc.', $user->company);
+        // Turning a customer into an IT Engineer moves them into our own team: no partner company any more.
         $this->assertSame('it_support', $user->role);
+        $this->assertNull($user->company_id);
+        $this->assertSame('JMS One IT', $user->company);
         $this->assertTrue(ActivityLog::where('user_id', $user->id)->where('action', 'profile_updated')->exists());
     }
 

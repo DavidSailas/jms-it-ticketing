@@ -93,7 +93,7 @@ class DashboardChartsTest extends TestCase
         $res->assertJsonPath('categories.0.label', 'Hardware')->assertJsonPath('categories.0.value', 2);
     }
 
-    public function test_a_partner_admin_only_gets_their_own_companys_numbers(): void
+    public function test_an_admin_gets_the_numbers_of_every_company(): void
     {
         $acme   = Company::create(['name' => 'Acme']);
         $globex = Company::create(['name' => 'Globex']);
@@ -104,7 +104,7 @@ class DashboardChartsTest extends TestCase
         $this->ticket($this->partnerOf($globex));
 
         $this->actingAs($admin)->getJson(route('dashboard.charts'))->assertOk()
-            ->assertJsonPath('trend.totals.created', 1)->assertJsonPath('kpis.unassigned', 1);
+            ->assertJsonPath('trend.totals.created', 3)->assertJsonPath('kpis.unassigned', 3);
     }
 
     public function test_dashboard_draws_the_chart_cards_with_the_first_data_already_in_the_page(): void
@@ -141,8 +141,7 @@ class DashboardChartsTest extends TestCase
         $this->assertStringContainsString('On track', $panel);          // Calm Co
 
         $admin = $this->partnerOf($late, 'admin');
-        $this->actingAs($admin)->get('/dashboard')->assertOk()
-            ->assertDontSee('Partner companies')->assertDontSee('Quiet Co');
+        $this->actingAs($admin)->get('/dashboard')->assertOk()->assertDontSee('Partner companies');
     }
 
     public function test_partner_overview_invites_the_first_company_when_there_are_none(): void

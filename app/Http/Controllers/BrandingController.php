@@ -13,30 +13,13 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * A company's own look: name, logo and colour.
- * Company admins change their own; super admins (JMS) can change any company's from its page.
+ * Super admins (JMS) change any company's from its page.
  */
 class BrandingController extends Controller
 {
-    public function edit(Request $request)
-    {
-        return view('branding.edit', ['company' => $this->ownCompany($request)]);
-    }
-
-    public function update(Request $request)
-    {
-        return $this->save($request, $this->ownCompany($request));
-    }
-
     public function updateFor(Request $request, Company $company)
     {
         return $this->save($request, $company);
-    }
-
-    private function ownCompany(Request $request): Company
-    {
-        abort_unless($request->user()->company_id, 403, 'Your account is not attached to a company yet. Ask JMS to assign one.');
-
-        return Company::findOrFail($request->user()->company_id);
     }
 
     private function save(Request $request, Company $company)

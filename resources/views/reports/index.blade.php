@@ -27,7 +27,7 @@
         .print-only { display: none; }
         @media print {
             aside, header, .no-print { display: none !important; }
-            .lg\:pl-64 { padding-left: 0 !important; }
+            .lg\:pl-64, .sb-main { padding-left: 0 !important; }
             body { background: #fff !important; }
             main { max-width: none !important; padding: 0 !important; }
             .print-only { display: block !important; }

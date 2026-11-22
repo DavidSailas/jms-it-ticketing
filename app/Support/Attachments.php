@@ -16,7 +16,7 @@ use Illuminate\Support\Str;
  */
 class Attachments
 {
-    public const MAX_FILES = 5;
+    public const MAX_FILES = 10;
     public const MAX_MB    = 10;
 
     /** Pictures: shown as thumbnails and opened in the browser. */

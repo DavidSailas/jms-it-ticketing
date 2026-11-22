@@ -18,8 +18,7 @@
         'name' => old('name', $saved['name']), 'username' => old('username', $saved['username']), 'email' => old('email', $saved['email']),
         'company' => $saved['company'], 'company_id' => old('jms_team') ? 'jms' : (string) old('company_id', $saved['company_id']), 'role' => old('role', $saved['role']),
     ]) : $blank;
-    $isSuper = auth()->user()->role === 'super_admin';
-    $companyOptions = $isSuper ? \App\Models\Company::orderBy('name')->get(['id', 'name']) : collect();
+    $companyOptions = \App\Models\Company::orderBy('name')->get(['id', 'name']);
     $ok  = 'border-slate-300 focus:border-brand-500 focus:ring-brand-500';
     $bad = 'border-red-400 focus:border-red-500 focus:ring-red-500';
 @endphp
@@ -99,20 +98,21 @@
                         @if ($bag->has('name')) <p role="alert" class="mt-1.5 text-sm text-red-600">{{ $bag->first('name') }}</p> @endif
                     </div>
                     <div>
-                        @if ($isSuper)
-                            <label for="edit-company" class="mb-1 block text-sm font-medium text-slate-700">Company</label>
-                            <select id="edit-company" name="company_id" x-model="u.company_id" required class="w-full rounded-lg {{ $bag->has('company_id') ? $bad : $ok }}">
+                        {{-- Customers belong to a partner company. Admins and IT Engineers always belong to JMS One IT. --}}
+                        <div x-show="u.role === 'user'" x-cloak>
+                            <label for="edit-company" class="mb-1 block text-sm font-medium text-slate-700">Partner company</label>
+                            <select id="edit-company" name="company_id" x-model="u.company_id" x-bind:required="u.role === 'user'" x-bind:disabled="u.role !== 'user'" class="w-full rounded-lg {{ $bag->has('company_id') ? $bad : $ok }}">
                                 <option value="">Choose a company</option>
-                                <option value="jms" x-bind:disabled="u.role === 'user'" x-bind:hidden="u.role === 'user'">JMS One IT (our team)</option>
                                 @foreach ($companyOptions as $c)
                                     <option value="{{ $c->id }}">{{ $c->name }}</option>
                                 @endforeach
                             </select>
                             @if ($bag->has('company_id')) <p role="alert" class="mt-1.5 text-sm text-red-600">{{ $bag->first('company_id') }}</p> @endif
-                        @else
+                        </div>
+                        <div x-show="u.role !== 'user'" x-cloak>
                             <label class="mb-1 block text-sm font-medium text-slate-700">Company</label>
-                            <p class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600" x-text="u.company || 'Not set'"></p>
-                        @endif
+                            <p class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">{{ \App\Models\User::JMS_NAME }}</p>
+                        </div>
                     </div>
                     <div>
                         <label for="edit-email" class="mb-1 block text-sm font-medium text-slate-700">Email</label>
