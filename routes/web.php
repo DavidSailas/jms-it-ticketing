@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AttachmentController;
 use App\Http\Controllers\BrandingController;
+use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\CannedReplyController;
 use App\Http\Controllers\DashboardChartController;
@@ -56,6 +57,14 @@ Route::middleware('auth')->group(function () {
     });
 
     // Booking calendar for staff.
+    // Customers: their own calendar, with private notes.
+    Route::middleware('role:user')->group(function () {
+        Route::get('calendar', [CalendarController::class, 'index'])->name('calendar.index');
+        Route::post('calendar/notes', [CalendarController::class, 'store'])->name('calendar.notes.store');
+        Route::patch('calendar/notes/{note}', [CalendarController::class, 'update'])->name('calendar.notes.update');
+        Route::delete('calendar/notes/{note}', [CalendarController::class, 'destroy'])->name('calendar.notes.destroy');
+    });
+
     Route::get('schedule', [ScheduleController::class, 'index'])
         ->middleware('role:it_support,admin,super_admin')->name('schedule.index');
 

@@ -2,8 +2,20 @@
 @php
     $t = $ticket ?? null;
     $isEdit = $t !== null;
-    $when = old('when', $t && $t->scheduled_for ? 'later' : 'now');
-    $scheduledValue = old('scheduled_for', $t?->scheduled_for?->format('Y-m-d\TH:i'));
+    // "Book a visit" from the customer calendar passes ?book=YYYY-MM-DD: start on that day.
+    $bookDefault = null;
+    if (! $isEdit && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) request('book'))) {
+        try {
+            $day = \Carbon\Carbon::createFromFormat('Y-m-d', request('book'))->startOfDay();
+            if (! $day->isPast() || $day->isToday()) {
+                $slot = $day->isToday() ? now()->addMinutes(60)->minute(0)->second(0) : $day->copy()->setTime(9, 0);
+                $bookDefault = $slot->isSameDay($day) ? $slot->format('Y-m-d\TH:i') : null;
+            }
+        } catch (\Throwable) {
+        }
+    }
+    $when = old('when', $t && $t->scheduled_for ? 'later' : ($bookDefault ? 'later' : 'now'));
+    $scheduledValue = old('scheduled_for', $t?->scheduled_for?->format('Y-m-d\TH:i') ?? $bookDefault);
     $icon = fn ($inner) => '<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' . $inner . '</svg>';
 
     $categories = [

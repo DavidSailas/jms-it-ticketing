@@ -36,6 +36,7 @@
     $nav = [
         [$isUser ? 'New Request' : 'Dashboard', 'dashboard', $isUser ? 'dashboard|tickets.create' : 'dashboard', $all, $isUser ? 'plus' : 'grid', 'main'],
         [$isUser ? 'My Tickets' : ($role === 'it_support' ? 'My Assignments' : 'All Tickets'), 'tickets.index', 'tickets.index|tickets.show', $all, 'list', 'main'],
+        ['My Calendar', 'calendar.index', 'calendar.*', ['user'], 'calendar', 'main'],
         ['Schedule', 'schedule.index', 'schedule.*', $staff, 'calendar', 'main'],
         ['Saved Replies', 'canned-replies.index', 'canned-replies.*', $staff, 'chat', 'main'],
         ['Companies', 'companies.index', 'companies.*', 'companies.manage', 'building', 'manage'],
@@ -187,7 +188,7 @@
                 </div>
 
                 <p class="sbp-label" style="margin-top:0">Layout</p>
-                <div class="sbp-styles">
+                <div class="sbp-styles" style="--cols:5">
                     <button type="button" class="sbp-style" title="Menu on the left with labels beside the icons" @click="$store.sidebar.set('layout', 'standard')" :aria-pressed="($store.sidebar.layout === 'standard').toString()">
                         <span class="sbp-lay l-standard"><i></i></span>Standard
                     </button>
@@ -201,13 +202,13 @@
                         <span class="sbp-lay l-right"><i></i></span>Right
                     </button>
                     <button type="button" class="sbp-style" title="Menu across the top" @click="$store.sidebar.set('layout', 'top')" :aria-pressed="($store.sidebar.layout === 'top').toString()">
-                        <span class="sbp-lay l-top"><i></i></span>Top menu
+                        <span class="sbp-lay l-top"><i></i></span>Top
                     </button>
                 </div>
-                <p class="sbp-note" style="margin-top:.4rem">Layouts apply on larger screens. Phones always use the slide-out menu.</p>
+                <p class="sbp-note" style="margin-top:.4rem">Layouts apply on larger screens; phones use the slide-out menu.</p>
 
                 <p class="sbp-label">Design</p>
-                <div class="sbp-styles">
+                <div class="sbp-styles" style="--cols:4">
                     <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'classic')" :aria-pressed="($store.sidebar.style === 'classic').toString()">
                         <span class="sbp-mini m-classic"><b></b><b class="on"></b><b></b></span>Default
                     </button>
