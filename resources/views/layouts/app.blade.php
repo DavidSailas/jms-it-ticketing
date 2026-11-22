@@ -77,7 +77,7 @@
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-sb-layout="standard" data-sb-style="classic" data-sb-density="comfortable" data-sb-collapsed="0">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ $brandName }}</title>
     <link rel="icon" href="{{ $brandLogo }}">
@@ -91,7 +91,11 @@
         <style>{!! $brandCss !!}</style>
     @endif
 </head>
-<body class="font-sans antialiased bg-slate-50 text-slate-800" x-data="{ open: false }"
+<body class="font-sans antialiased bg-slate-50 text-slate-800"
+      x-data="{ open: false, desk: window.matchMedia('(min-width: 1024px)').matches }"
+      x-init="window.matchMedia('(min-width: 1024px)').addEventListener('change', e => { desk = e.matches; if (e.matches) open = false })"
+      x-effect="document.body.classList.toggle('sb-lock', open && ! desk)"
+      @keydown.escape.window="open = false"
       @keydown.window="if (['INPUT','TEXTAREA','SELECT'].includes($event.target.tagName) || $event.target.isContentEditable || $event.ctrlKey || $event.metaKey || $event.altKey) return; if ($event.key === '[') { $store.sidebar.toggle() }">
 
     <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-brand-800 focus:shadow-lg">Skip to content</a>
@@ -102,11 +106,11 @@
     @endif
 
     {{-- Mobile overlay --}}
-    <div x-show="open" x-cloak @click="open = false" class="fixed inset-0 z-30 bg-slate-900/50 lg:hidden"></div>
+    <div x-show="open" x-cloak x-transition.opacity.duration.200ms @click="open = false" class="fixed inset-0 z-30 bg-slate-900/50 lg:hidden" aria-hidden="true"></div>
 
     {{-- Sidebar. Look = the person's chosen style (Classic / Soft / Notch) over the role colours (App\Support\RoleTheme).
          Preferences live in the "sidebar" store (see layouts/partials/sidebar-assets). --}}
-    <aside :class="open ? 'translate-x-0' : '-translate-x-full'" data-role="{{ $role }}" aria-label="Sidebar"
+    <aside :class="open ? 'translate-x-0' : '-translate-x-full'" :inert="! open && ! desk" data-role="{{ $role }}" aria-label="Sidebar"
            class="sb fixed inset-y-0 left-0 z-40 flex flex-col border-r {{ $theme['aside'] }} transition-transform lg:translate-x-0">
         {{-- Open / close handle on the edge of the sidebar (desktop). Same as the top bar button and the [ key. --}}
         <button type="button" @click="$store.sidebar.toggle()" class="sb-handle"
@@ -125,7 +129,7 @@
             </a>
         </div>
 
-        <nav class="sb-nav flex-1 space-y-1 overflow-y-auto p-4" aria-label="Main">
+        <nav class="sb-nav flex-1 space-y-1 overflow-y-auto p-4" aria-label="Main" @click="if ($event.target.closest('a')) open = false">
             @foreach ($navGroups as $group => $items)
                 @if ($theme['headings'])
                     <button type="button" @click="$store.sidebar.toggleGroup('{{ $group }}')"
@@ -163,7 +167,7 @@
         </nav>
 
         {{-- Customise --}}
-        <div class="sb-foot sb-divider border-t {{ $theme['divider'] }}" x-data="{ pop: false }" @keydown.escape.window="pop = false">
+        <div class="sb-foot sb-divider border-t {{ $theme['divider'] }}" x-data="{ pop: false }" x-init="$watch('pop', v => { if (! v) $nextTick(() => $refs.sbBtn && $refs.sbBtn.focus({ preventScroll: true })) })">
             {{-- Profile chip: shown by the Glass design only --}}
             <a href="{{ route('profile.edit') }}" class="sb-user" title="My profile">
                 <x-avatar :user="auth()->user()" :zoom="false" />
@@ -172,104 +176,121 @@
                     <span class="sb-user-role">{{ auth()->user()->roleLabel() }}</span>
                 </span>
             </a>
-            <button type="button" @click="pop = ! pop" :aria-expanded="pop.toString()" aria-haspopup="dialog"
+            <button type="button" x-ref="sbBtn" @click="pop = ! pop" :aria-expanded="pop.toString()" aria-haspopup="dialog"
                     class="sb-customise {{ $theme['navIdle'] }}" title="Customise sidebar">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
                 <span class="sb-label">Customise</span>
                 <span class="sb-tip" role="tooltip">Customise</span>
             </button>
 
-            <div x-show="pop" x-cloak x-transition.opacity.duration.150ms @click.outside="pop = false" class="sb-pop" role="dialog" aria-label="Customise sidebar">
-                <div class="sbp-head">
-                    <span class="sbp-title">Customise sidebar</span>
-                    <button type="button" class="sbp-x" @click="pop = false" aria-label="Close">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
-                    </button>
-                </div>
+            <template x-teleport="body">
+                <div x-show="pop" x-cloak class="sbp-root"
+                     @keydown.escape.window="pop = false"
+                     x-effect="document.body.classList.toggle('sb-lock', pop); if (pop) $nextTick(() => { const b = $el.querySelector('.sbp-x'); b && b.focus({ preventScroll: true }) })">
+                    <div class="sbp-backdrop" @click="pop = false" aria-hidden="true"></div>
 
-                <p class="sbp-label" style="margin-top:0">Layout</p>
-                <div class="sbp-styles" style="--cols:5">
-                    <button type="button" class="sbp-style" title="Menu on the left with labels beside the icons" @click="$store.sidebar.set('layout', 'standard')" :aria-pressed="($store.sidebar.layout === 'standard').toString()">
-                        <span class="sbp-lay l-standard"><i></i></span>Standard
-                    </button>
-                    <button type="button" class="sbp-style" title="Narrow bar with the label under each icon" @click="$store.sidebar.set('layout', 'stacked')" :aria-pressed="($store.sidebar.layout === 'stacked').toString()">
-                        <span class="sbp-lay l-stacked"><i></i></span>Compact
-                    </button>
-                    <button type="button" class="sbp-style" title="A detached rounded panel" @click="$store.sidebar.set('layout', 'floating')" :aria-pressed="($store.sidebar.layout === 'floating').toString()">
-                        <span class="sbp-lay l-floating"><i></i></span>Floating
-                    </button>
-                    <button type="button" class="sbp-style" title="Menu on the right-hand side" @click="$store.sidebar.set('layout', 'right')" :aria-pressed="($store.sidebar.layout === 'right').toString()">
-                        <span class="sbp-lay l-right"><i></i></span>Right
-                    </button>
-                    <button type="button" class="sbp-style" title="Menu across the top" @click="$store.sidebar.set('layout', 'top')" :aria-pressed="($store.sidebar.layout === 'top').toString()">
-                        <span class="sbp-lay l-top"><i></i></span>Top
-                    </button>
-                </div>
-                <p class="sbp-note" style="margin-top:.4rem">Layouts apply on larger screens; phones use the slide-out menu.</p>
+                    <div class="sb-pop" role="dialog" aria-modal="true" aria-labelledby="sbp-title">
+                        <span class="sbp-grab" aria-hidden="true"></span>
+                        <div class="sbp-head">
+                            <span class="sbp-title" id="sbp-title">Customise sidebar</span>
+                            <button type="button" class="sbp-x" @click="pop = false" aria-label="Close">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+                            </button>
+                        </div>
 
-                <p class="sbp-label">Design</p>
-                <div class="sbp-styles" style="--cols:4">
-                    <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'classic')" :aria-pressed="($store.sidebar.style === 'classic').toString()">
-                        <span class="sbp-mini m-classic"><b></b><b class="on"></b><b></b></span>Default
-                    </button>
-                    <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'light')" :aria-pressed="($store.sidebar.style === 'light').toString()">
-                        <span class="sbp-mini m-light"><b></b><b class="on"></b><b></b></span>Light
-                    </button>
-                    <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'navy')" :aria-pressed="($store.sidebar.style === 'navy').toString()">
-                        <span class="sbp-mini m-navy"><b></b><b class="on"></b><b></b></span>Navy
-                    </button>
-                    <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'pill')" :aria-pressed="($store.sidebar.style === 'pill').toString()">
-                        <span class="sbp-mini m-pill"><b></b><b class="on"></b><b></b></span>Pill
-                    </button>
-                    <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'gradient')" :aria-pressed="($store.sidebar.style === 'gradient').toString()">
-                        <span class="sbp-mini m-gradient"><b></b><b class="on"></b><b></b></span>Gradient
-                    </button>
-                    <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'glass')" :aria-pressed="($store.sidebar.style === 'glass').toString()">
-                        <span class="sbp-mini m-glass"><b></b><b class="on"></b><b></b></span>Glass
-                    </button>
-                    <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'tab')" :aria-pressed="($store.sidebar.style === 'tab').toString()">
-                        <span class="sbp-mini m-tab"><b></b><b class="on"></b><b></b></span>Tab
-                    </button>
-                </div>
+                        <div class="sbp-body">
+                            {{-- Layouts only exist on laptops and desktops; phones and tablets always use the slide-out menu --}}
+                            <div class="hidden lg:block">
+                                <p class="sbp-label" style="margin-top:0">Layout</p>
+                            <div class="sbp-styles" style="--cols:5">
+                                <button type="button" class="sbp-style" title="Menu on the left with labels beside the icons" @click="$store.sidebar.set('layout', 'standard')" :aria-pressed="($store.sidebar.layout === 'standard').toString()">
+                                    <span class="sbp-lay l-standard"><i></i></span>Standard
+                                </button>
+                                <button type="button" class="sbp-style" title="Narrow bar with the label under each icon" @click="$store.sidebar.set('layout', 'stacked')" :aria-pressed="($store.sidebar.layout === 'stacked').toString()">
+                                    <span class="sbp-lay l-stacked"><i></i></span>Compact
+                                </button>
+                                <button type="button" class="sbp-style" title="A detached rounded panel" @click="$store.sidebar.set('layout', 'floating')" :aria-pressed="($store.sidebar.layout === 'floating').toString()">
+                                    <span class="sbp-lay l-floating"><i></i></span>Floating
+                                </button>
+                                <button type="button" class="sbp-style" title="Menu on the right-hand side" @click="$store.sidebar.set('layout', 'right')" :aria-pressed="($store.sidebar.layout === 'right').toString()">
+                                    <span class="sbp-lay l-right"><i></i></span>Right
+                                </button>
+                                <button type="button" class="sbp-style" title="Menu across the top" @click="$store.sidebar.set('layout', 'top')" :aria-pressed="($store.sidebar.layout === 'top').toString()">
+                                    <span class="sbp-lay l-top"><i></i></span>Top
+                                </button>
+                            </div>
+                            </div>
 
-                <p class="sbp-label">Sidebar colour</p>
-                <div class="sbp-swatches" role="group" aria-label="Sidebar colour">
-                    <button type="button" class="sbp-sw sbp-auto" title="Automatic (follows the design)" aria-label="Automatic" @click="$store.sidebar.set('bg', 'auto')" :aria-pressed="($store.sidebar.bg === 'auto').toString()"></button>
-                    <button type="button" class="sbp-sw" title="White" aria-label="White" style="background:#ffffff" @click="$store.sidebar.set('bg', '#ffffff')" :aria-pressed="($store.sidebar.bg === '#ffffff').toString()"></button>
-                    <button type="button" class="sbp-sw" title="Charcoal" aria-label="Charcoal" style="background:#0f172a" @click="$store.sidebar.set('bg', '#0f172a')" :aria-pressed="($store.sidebar.bg === '#0f172a').toString()"></button>
-                    <button type="button" class="sbp-sw" title="Navy" aria-label="Navy" style="background:#12284a" @click="$store.sidebar.set('bg', '#12284a')" :aria-pressed="($store.sidebar.bg === '#12284a').toString()"></button>
-                    <button type="button" class="sbp-sw" title="Teal" aria-label="Teal" style="background:#134e4a" @click="$store.sidebar.set('bg', '#134e4a')" :aria-pressed="($store.sidebar.bg === '#134e4a').toString()"></button>
-                    <button type="button" class="sbp-sw" title="Plum" aria-label="Plum" style="background:#3b0764" @click="$store.sidebar.set('bg', '#3b0764')" :aria-pressed="($store.sidebar.bg === '#3b0764').toString()"></button>
-                    <button type="button" class="sbp-sw" title="Maroon" aria-label="Maroon" style="background:#7f1d1d" @click="$store.sidebar.set('bg', '#7f1d1d')" :aria-pressed="($store.sidebar.bg === '#7f1d1d').toString()"></button>
-                    <label class="sbp-sw sbp-pick" title="Pick any colour"><input type="color" :value="$store.sidebar.bg === 'auto' ? '#12284a' : $store.sidebar.bg" @input="$store.sidebar.set('bg', $event.target.value)" aria-label="Custom sidebar colour"></label>
-                </div>
+                            <p class="sbp-label">Design</p>
+                            <div class="sbp-styles" style="--cols:4">
+                                <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'classic')" :aria-pressed="($store.sidebar.style === 'classic').toString()">
+                                    <span class="sbp-mini m-classic"><b></b><b class="on"></b><b></b></span>Default
+                                </button>
+                                <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'light')" :aria-pressed="($store.sidebar.style === 'light').toString()">
+                                    <span class="sbp-mini m-light"><b></b><b class="on"></b><b></b></span>Light
+                                </button>
+                                <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'navy')" :aria-pressed="($store.sidebar.style === 'navy').toString()">
+                                    <span class="sbp-mini m-navy"><b></b><b class="on"></b><b></b></span>Navy
+                                </button>
+                                <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'pill')" :aria-pressed="($store.sidebar.style === 'pill').toString()">
+                                    <span class="sbp-mini m-pill"><b></b><b class="on"></b><b></b></span>Pill
+                                </button>
+                                <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'gradient')" :aria-pressed="($store.sidebar.style === 'gradient').toString()">
+                                    <span class="sbp-mini m-gradient"><b></b><b class="on"></b><b></b></span>Gradient
+                                </button>
+                                <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'glass')" :aria-pressed="($store.sidebar.style === 'glass').toString()">
+                                    <span class="sbp-mini m-glass"><b></b><b class="on"></b><b></b></span>Glass
+                                </button>
+                                <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'tab')" :aria-pressed="($store.sidebar.style === 'tab').toString()">
+                                    <span class="sbp-mini m-tab"><b></b><b class="on"></b><b></b></span>Tab
+                                </button>
+                            </div>
 
-                <p class="sbp-label">Accent colour</p>
-                <div class="sbp-swatches" role="group" aria-label="Accent colour">
-                    <button type="button" class="sbp-sw sbp-auto" title="Automatic" aria-label="Automatic" @click="$store.sidebar.set('accent', 'auto')" :aria-pressed="($store.sidebar.accent === 'auto').toString()"></button>
-                    <button type="button" class="sbp-sw" title="Blue" aria-label="Blue" style="background:#2563eb" @click="$store.sidebar.set('accent', '#2563eb')" :aria-pressed="($store.sidebar.accent === '#2563eb').toString()"></button>
-                    <button type="button" class="sbp-sw" title="Sky" aria-label="Sky" style="background:#0ea5e9" @click="$store.sidebar.set('accent', '#0ea5e9')" :aria-pressed="($store.sidebar.accent === '#0ea5e9').toString()"></button>
-                    <button type="button" class="sbp-sw" title="Violet" aria-label="Violet" style="background:#7c3aed" @click="$store.sidebar.set('accent', '#7c3aed')" :aria-pressed="($store.sidebar.accent === '#7c3aed').toString()"></button>
-                    <button type="button" class="sbp-sw" title="Emerald" aria-label="Emerald" style="background:#059669" @click="$store.sidebar.set('accent', '#059669')" :aria-pressed="($store.sidebar.accent === '#059669').toString()"></button>
-                    <button type="button" class="sbp-sw" title="Rose" aria-label="Rose" style="background:#e11d48" @click="$store.sidebar.set('accent', '#e11d48')" :aria-pressed="($store.sidebar.accent === '#e11d48').toString()"></button>
-                    <button type="button" class="sbp-sw" title="Amber" aria-label="Amber" style="background:#f59e0b" @click="$store.sidebar.set('accent', '#f59e0b')" :aria-pressed="($store.sidebar.accent === '#f59e0b').toString()"></button>
-                    <label class="sbp-sw sbp-pick" title="Pick any colour"><input type="color" :value="$store.sidebar.accent === 'auto' ? '#2563eb' : $store.sidebar.accent" @input="$store.sidebar.set('accent', $event.target.value)" aria-label="Custom accent colour"></label>
-                </div>
+                            <p class="sbp-label">Sidebar colour</p>
+                            <div class="sbp-swatches" role="group" aria-label="Sidebar colour">
+                                <button type="button" class="sbp-sw sbp-auto" title="Automatic (follows the design)" aria-label="Automatic" @click="$store.sidebar.set('bg', 'auto')" :aria-pressed="($store.sidebar.bg === 'auto').toString()"></button>
+                                <button type="button" class="sbp-sw" title="White" aria-label="White" style="background:#ffffff" @click="$store.sidebar.set('bg', '#ffffff')" :aria-pressed="($store.sidebar.bg === '#ffffff').toString()"></button>
+                                <button type="button" class="sbp-sw" title="Charcoal" aria-label="Charcoal" style="background:#0f172a" @click="$store.sidebar.set('bg', '#0f172a')" :aria-pressed="($store.sidebar.bg === '#0f172a').toString()"></button>
+                                <button type="button" class="sbp-sw" title="Navy" aria-label="Navy" style="background:#12284a" @click="$store.sidebar.set('bg', '#12284a')" :aria-pressed="($store.sidebar.bg === '#12284a').toString()"></button>
+                                <button type="button" class="sbp-sw" title="Teal" aria-label="Teal" style="background:#134e4a" @click="$store.sidebar.set('bg', '#134e4a')" :aria-pressed="($store.sidebar.bg === '#134e4a').toString()"></button>
+                                <button type="button" class="sbp-sw" title="Plum" aria-label="Plum" style="background:#3b0764" @click="$store.sidebar.set('bg', '#3b0764')" :aria-pressed="($store.sidebar.bg === '#3b0764').toString()"></button>
+                                <button type="button" class="sbp-sw" title="Maroon" aria-label="Maroon" style="background:#7f1d1d" @click="$store.sidebar.set('bg', '#7f1d1d')" :aria-pressed="($store.sidebar.bg === '#7f1d1d').toString()"></button>
+                                <label class="sbp-sw sbp-pick" title="Pick any colour"><input type="color" :value="$store.sidebar.bg === 'auto' ? '#12284a' : $store.sidebar.bg" @input="$store.sidebar.set('bg', $event.target.value)" aria-label="Custom sidebar colour"></label>
+                            </div>
 
-                <p class="sbp-label">Spacing</p>
-                <div class="sbp-seg" role="group" aria-label="Spacing">
-                    <button type="button" @click="$store.sidebar.set('density', 'comfortable')" :aria-pressed="($store.sidebar.density === 'comfortable').toString()">Comfortable</button>
-                    <button type="button" @click="$store.sidebar.set('density', 'compact')" :aria-pressed="($store.sidebar.density === 'compact').toString()">Compact</button>
-                </div>
+                            <p class="sbp-label">Accent colour</p>
+                            <div class="sbp-swatches" role="group" aria-label="Accent colour">
+                                <button type="button" class="sbp-sw sbp-auto" title="Automatic" aria-label="Automatic" @click="$store.sidebar.set('accent', 'auto')" :aria-pressed="($store.sidebar.accent === 'auto').toString()"></button>
+                                <button type="button" class="sbp-sw" title="Blue" aria-label="Blue" style="background:#2563eb" @click="$store.sidebar.set('accent', '#2563eb')" :aria-pressed="($store.sidebar.accent === '#2563eb').toString()"></button>
+                                <button type="button" class="sbp-sw" title="Sky" aria-label="Sky" style="background:#0ea5e9" @click="$store.sidebar.set('accent', '#0ea5e9')" :aria-pressed="($store.sidebar.accent === '#0ea5e9').toString()"></button>
+                                <button type="button" class="sbp-sw" title="Violet" aria-label="Violet" style="background:#7c3aed" @click="$store.sidebar.set('accent', '#7c3aed')" :aria-pressed="($store.sidebar.accent === '#7c3aed').toString()"></button>
+                                <button type="button" class="sbp-sw" title="Emerald" aria-label="Emerald" style="background:#059669" @click="$store.sidebar.set('accent', '#059669')" :aria-pressed="($store.sidebar.accent === '#059669').toString()"></button>
+                                <button type="button" class="sbp-sw" title="Rose" aria-label="Rose" style="background:#e11d48" @click="$store.sidebar.set('accent', '#e11d48')" :aria-pressed="($store.sidebar.accent === '#e11d48').toString()"></button>
+                                <button type="button" class="sbp-sw" title="Amber" aria-label="Amber" style="background:#f59e0b" @click="$store.sidebar.set('accent', '#f59e0b')" :aria-pressed="($store.sidebar.accent === '#f59e0b').toString()"></button>
+                                <label class="sbp-sw sbp-pick" title="Pick any colour"><input type="color" :value="$store.sidebar.accent === 'auto' ? '#2563eb' : $store.sidebar.accent" @input="$store.sidebar.set('accent', $event.target.value)" aria-label="Custom accent colour"></label>
+                            </div>
 
-                <div class="sbp-row hidden lg:flex" x-show="$store.sidebar.layout === 'standard'">
-                    <span id="sb-collapse-label">Icons only <span style="font-weight:400;color:#94a3b8">( [ )</span></span>
-                    <button type="button" class="sbp-switch" role="switch" aria-labelledby="sb-collapse-label" @click="$store.sidebar.toggle()" :aria-checked="$store.sidebar.collapsed.toString()"></button>
-                </div>
+                            <p class="sbp-label">Spacing</p>
+                            <div class="sbp-seg" role="group" aria-label="Spacing">
+                                <button type="button" @click="$store.sidebar.set('density', 'comfortable')" :aria-pressed="($store.sidebar.density === 'comfortable').toString()">Comfortable</button>
+                                <button type="button" @click="$store.sidebar.set('density', 'compact')" :aria-pressed="($store.sidebar.density === 'compact').toString()">Compact</button>
+                            </div>
 
-                <button type="button" class="sbp-reset" @click="$store.sidebar.reset()">Reset to default</button>
-                <p class="sbp-note">Saved on this device for your account.</p>
-            </div>
+                            <div class="sbp-row hidden lg:flex" x-show="$store.sidebar.layout === 'standard'">
+                                <span id="sb-collapse-label">Icons only <span style="font-weight:400;color:#94a3b8">( [ )</span></span>
+                                <button type="button" class="sbp-switch" role="switch" aria-labelledby="sb-collapse-label" @click="$store.sidebar.toggle()" :aria-checked="$store.sidebar.collapsed.toString()"></button>
+                            </div>
+
+                            <p class="sbp-note">Saved on this device for your account.</p>
+                        </div>
+
+                        <div class="sbp-foot">
+                            <button type="button" class="sbp-reset" @click="$store.sidebar.reset()">Reset to default</button>
+                            <button type="button" class="sbp-done" @click="pop = false">Done</button>
+                        </div>
+                    </div>
+                </div>
+            </template>
         </div>
     </aside>
 
@@ -282,10 +303,10 @@
             <button type="button" @click="$store.sidebar.toggle()" class="sb-topbtn" :aria-label="$store.sidebar.collapsed ? 'Open sidebar' : 'Close sidebar'" :title="$store.sidebar.collapsed ? 'Open sidebar  ( [ )' : 'Close sidebar  ( [ )'">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
             </button>
-            <button @click="open = true" class="rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Open menu">
+            <button @click="open = true" class="mn-hide-phone rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Open menu">
                 <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
             </button>
-            <div class="text-lg font-semibold text-brand-800">{{ $header ?? '' }}</div>
+            <div class="min-w-0 truncate text-lg font-semibold text-brand-800">{{ $header ?? '' }}</div>
             @if ($theme['icon'])
                 <span class="hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider md:inline-flex {{ $theme['headerPill'] }}">
                     <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{!! $theme['icon'] !!}</svg>
@@ -357,6 +378,7 @@
         </main>
     </div>
 
+    @include('layouts.partials.mobile-nav')
     @include('layouts.partials.photo-viewer')
     @include('layouts.partials.command-palette')
 </body>

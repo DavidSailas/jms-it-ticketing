@@ -127,3 +127,29 @@ aside nav {
 @media (hover: none) and (pointer: coarse) {
     ::-webkit-scrollbar { width: 6px; height: 6px; }
 }
+
+/* ---------------------------------------------------------------------------
+   Phones and tablets
+   - Form fields are 16px on small screens so iOS Safari does not zoom the page when one is tapped.
+   - Taps respond at once (no double-tap-to-zoom delay) on every control.
+   - Long words, emails and ticket references wrap instead of pushing the page sideways.
+   --------------------------------------------------------------------------- */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+a, button, summary, label, select, [role="button"], input, textarea { touch-action: manipulation; }
+
+@media (max-width: 639px) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]):not([type="file"]),
+    select,
+    textarea {
+        font-size: 16px;
+    }
+}
+
+#main-content { overflow-wrap: anywhere; min-width: 0; }
+#main-content table { overflow-wrap: normal; }
+.sb-main { min-width: 0; }
+
+/* Respect people who ask their device for less motion. */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { scroll-behavior: auto !important; }
+}

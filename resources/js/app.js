@@ -24,6 +24,12 @@ Alpine.data('notificationBell', (cfg) => ({
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) this.poll();
         });
+        // Let the phone tab bar show the same unread count once it has started.
+        setTimeout(() => this.announce(), 0);
+    },
+
+    announce() {
+        window.dispatchEvent(new CustomEvent('unread-changed', { detail: this.unread }));
     },
 
     async poll() {
@@ -41,6 +47,7 @@ Alpine.data('notificationBell', (cfg) => ({
 
             this.items = data.items;
             this.unread = data.unread;
+            this.announce();
 
             if (fresh.length) {
                 this.lastTs = Math.max(this.lastTs, ...fresh.map((i) => i.ts));
@@ -63,6 +70,7 @@ Alpine.data('notificationBell', (cfg) => ({
     async markAll() {
         this.items = this.items.map((i) => ({ ...i, read: true }));
         this.unread = 0;
+        this.announce();
 
         await fetch(cfg.readAllUrl, {
             method: 'POST',

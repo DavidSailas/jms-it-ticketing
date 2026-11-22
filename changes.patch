@@ -1,0 +1,892 @@
+diff -ruN a/resources/css/app.css b/resources/css/app.css
+--- a/resources/css/app.css	2026-11-22 13:35:35.636198940 +0000
++++ b/resources/css/app.css	2026-11-22 13:36:01.018608739 +0000
+@@ -127,3 +127,29 @@
+ @media (hover: none) and (pointer: coarse) {
+     ::-webkit-scrollbar { width: 6px; height: 6px; }
+ }
++
++/* ---------------------------------------------------------------------------
++   Phones and tablets
++   - Form fields are 16px on small screens so iOS Safari does not zoom the page when one is tapped.
++   - Taps respond at once (no double-tap-to-zoom delay) on every control.
++   - Long words, emails and ticket references wrap instead of pushing the page sideways.
++   --------------------------------------------------------------------------- */
++html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
++a, button, summary, label, select, [role="button"], input, textarea { touch-action: manipulation; }
++
++@media (max-width: 639px) {
++    input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]):not([type="file"]),
++    select,
++    textarea {
++        font-size: 16px;
++    }
++}
++
++#main-content { overflow-wrap: anywhere; min-width: 0; }
++#main-content table { overflow-wrap: normal; }
++.sb-main { min-width: 0; }
++
++/* Respect people who ask their device for less motion. */
++@media (prefers-reduced-motion: reduce) {
++    *, *::before, *::after { scroll-behavior: auto !important; }
++}
+diff -ruN a/resources/js/app.js b/resources/js/app.js
+--- a/resources/js/app.js	2026-11-22 13:35:35.636246523 +0000
++++ b/resources/js/app.js	2026-11-22 13:51:43.271832893 +0000
+@@ -24,6 +24,12 @@
+         document.addEventListener('visibilitychange', () => {
+             if (!document.hidden) this.poll();
+         });
++        // Let the phone tab bar show the same unread count once it has started.
++        setTimeout(() => this.announce(), 0);
++    },
++
++    announce() {
++        window.dispatchEvent(new CustomEvent('unread-changed', { detail: this.unread }));
+     },
+ 
+     async poll() {
+@@ -41,6 +47,7 @@
+ 
+             this.items = data.items;
+             this.unread = data.unread;
++            this.announce();
+ 
+             if (fresh.length) {
+                 this.lastTs = Math.max(this.lastTs, ...fresh.map((i) => i.ts));
+@@ -63,6 +70,7 @@
+     async markAll() {
+         this.items = this.items.map((i) => ({ ...i, read: true }));
+         this.unread = 0;
++        this.announce();
+ 
+         await fetch(cfg.readAllUrl, {
+             method: 'POST',
+diff -ruN a/resources/views/layouts/app.blade.php b/resources/views/layouts/app.blade.php
+--- a/resources/views/layouts/app.blade.php	2026-11-22 13:35:35.636925435 +0000
++++ b/resources/views/layouts/app.blade.php	2026-11-22 13:51:43.270850928 +0000
+@@ -77,7 +77,7 @@
+ <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-sb-layout="standard" data-sb-style="classic" data-sb-density="comfortable" data-sb-collapsed="0">
+ <head>
+     <meta charset="utf-8">
+-    <meta name="viewport" content="width=device-width, initial-scale=1">
++    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+     <meta name="csrf-token" content="{{ csrf_token() }}">
+     <title>{{ $brandName }}</title>
+     <link rel="icon" href="{{ $brandLogo }}">
+@@ -91,7 +91,11 @@
+         <style>{!! $brandCss !!}</style>
+     @endif
+ </head>
+-<body class="font-sans antialiased bg-slate-50 text-slate-800" x-data="{ open: false }"
++<body class="font-sans antialiased bg-slate-50 text-slate-800"
++      x-data="{ open: false, desk: window.matchMedia('(min-width: 1024px)').matches }"
++      x-init="window.matchMedia('(min-width: 1024px)').addEventListener('change', e => { desk = e.matches; if (e.matches) open = false })"
++      x-effect="document.body.classList.toggle('sb-lock', open && ! desk)"
++      @keydown.escape.window="open = false"
+       @keydown.window="if (['INPUT','TEXTAREA','SELECT'].includes($event.target.tagName) || $event.target.isContentEditable || $event.ctrlKey || $event.metaKey || $event.altKey) return; if ($event.key === '[') { $store.sidebar.toggle() }">
+ 
+     <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-brand-800 focus:shadow-lg">Skip to content</a>
+@@ -102,11 +106,11 @@
+     @endif
+ 
+     {{-- Mobile overlay --}}
+-    <div x-show="open" x-cloak @click="open = false" class="fixed inset-0 z-30 bg-slate-900/50 lg:hidden"></div>
++    <div x-show="open" x-cloak x-transition.opacity.duration.200ms @click="open = false" class="fixed inset-0 z-30 bg-slate-900/50 lg:hidden" aria-hidden="true"></div>
+ 
+     {{-- Sidebar. Look = the person's chosen style (Classic / Soft / Notch) over the role colours (App\Support\RoleTheme).
+          Preferences live in the "sidebar" store (see layouts/partials/sidebar-assets). --}}
+-    <aside :class="open ? 'translate-x-0' : '-translate-x-full'" data-role="{{ $role }}" aria-label="Sidebar"
++    <aside :class="open ? 'translate-x-0' : '-translate-x-full'" :inert="! open && ! desk" data-role="{{ $role }}" aria-label="Sidebar"
+            class="sb fixed inset-y-0 left-0 z-40 flex flex-col border-r {{ $theme['aside'] }} transition-transform lg:translate-x-0">
+         {{-- Open / close handle on the edge of the sidebar (desktop). Same as the top bar button and the [ key. --}}
+         <button type="button" @click="$store.sidebar.toggle()" class="sb-handle"
+@@ -125,7 +129,7 @@
+             </a>
+         </div>
+ 
+-        <nav class="sb-nav flex-1 space-y-1 overflow-y-auto p-4" aria-label="Main">
++        <nav class="sb-nav flex-1 space-y-1 overflow-y-auto p-4" aria-label="Main" @click="if ($event.target.closest('a')) open = false">
+             @foreach ($navGroups as $group => $items)
+                 @if ($theme['headings'])
+                     <button type="button" @click="$store.sidebar.toggleGroup('{{ $group }}')"
+@@ -163,7 +167,7 @@
+         </nav>
+ 
+         {{-- Customise --}}
+-        <div class="sb-foot sb-divider border-t {{ $theme['divider'] }}" x-data="{ pop: false }" @keydown.escape.window="pop = false">
++        <div class="sb-foot sb-divider border-t {{ $theme['divider'] }}" x-data="{ pop: false }" x-init="$watch('pop', v => { if (! v) $nextTick(() => $refs.sbBtn && $refs.sbBtn.focus({ preventScroll: true })) })">
+             {{-- Profile chip: shown by the Glass design only --}}
+             <a href="{{ route('profile.edit') }}" class="sb-user" title="My profile">
+                 <x-avatar :user="auth()->user()" :zoom="false" />
+@@ -172,104 +176,121 @@
+                     <span class="sb-user-role">{{ auth()->user()->roleLabel() }}</span>
+                 </span>
+             </a>
+-            <button type="button" @click="pop = ! pop" :aria-expanded="pop.toString()" aria-haspopup="dialog"
++            <button type="button" x-ref="sbBtn" @click="pop = ! pop" :aria-expanded="pop.toString()" aria-haspopup="dialog"
+                     class="sb-customise {{ $theme['navIdle'] }}" title="Customise sidebar">
+                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+                 <span class="sb-label">Customise</span>
+                 <span class="sb-tip" role="tooltip">Customise</span>
+             </button>
+ 
+-            <div x-show="pop" x-cloak x-transition.opacity.duration.150ms @click.outside="pop = false" class="sb-pop" role="dialog" aria-label="Customise sidebar">
+-                <div class="sbp-head">
+-                    <span class="sbp-title">Customise sidebar</span>
+-                    <button type="button" class="sbp-x" @click="pop = false" aria-label="Close">
+-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+-                    </button>
+-                </div>
++            <template x-teleport="body">
++                <div x-show="pop" x-cloak class="sbp-root"
++                     @keydown.escape.window="pop = false"
++                     x-effect="document.body.classList.toggle('sb-lock', pop); if (pop) $nextTick(() => { const b = $el.querySelector('.sbp-x'); b && b.focus({ preventScroll: true }) })">
++                    <div class="sbp-backdrop" @click="pop = false" aria-hidden="true"></div>
++
++                    <div class="sb-pop" role="dialog" aria-modal="true" aria-labelledby="sbp-title">
++                        <span class="sbp-grab" aria-hidden="true"></span>
++                        <div class="sbp-head">
++                            <span class="sbp-title" id="sbp-title">Customise sidebar</span>
++                            <button type="button" class="sbp-x" @click="pop = false" aria-label="Close">
++                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
++                            </button>
++                        </div>
+ 
+-                <p class="sbp-label" style="margin-top:0">Layout</p>
+-                <div class="sbp-styles" style="--cols:5">
+-                    <button type="button" class="sbp-style" title="Menu on the left with labels beside the icons" @click="$store.sidebar.set('layout', 'standard')" :aria-pressed="($store.sidebar.layout === 'standard').toString()">
+-                        <span class="sbp-lay l-standard"><i></i></span>Standard
+-                    </button>
+-                    <button type="button" class="sbp-style" title="Narrow bar with the label under each icon" @click="$store.sidebar.set('layout', 'stacked')" :aria-pressed="($store.sidebar.layout === 'stacked').toString()">
+-                        <span class="sbp-lay l-stacked"><i></i></span>Compact
+-                    </button>
+-                    <button type="button" class="sbp-style" title="A detached rounded panel" @click="$store.sidebar.set('layout', 'floating')" :aria-pressed="($store.sidebar.layout === 'floating').toString()">
+-                        <span class="sbp-lay l-floating"><i></i></span>Floating
+-                    </button>
+-                    <button type="button" class="sbp-style" title="Menu on the right-hand side" @click="$store.sidebar.set('layout', 'right')" :aria-pressed="($store.sidebar.layout === 'right').toString()">
+-                        <span class="sbp-lay l-right"><i></i></span>Right
+-                    </button>
+-                    <button type="button" class="sbp-style" title="Menu across the top" @click="$store.sidebar.set('layout', 'top')" :aria-pressed="($store.sidebar.layout === 'top').toString()">
+-                        <span class="sbp-lay l-top"><i></i></span>Top
+-                    </button>
+-                </div>
+-                <p class="sbp-note" style="margin-top:.4rem">Layouts apply on larger screens; phones use the slide-out menu.</p>
++                        <div class="sbp-body">
++                            {{-- Layouts only exist on laptops and desktops; phones and tablets always use the slide-out menu --}}
++                            <div class="hidden lg:block">
++                                <p class="sbp-label" style="margin-top:0">Layout</p>
++                            <div class="sbp-styles" style="--cols:5">
++                                <button type="button" class="sbp-style" title="Menu on the left with labels beside the icons" @click="$store.sidebar.set('layout', 'standard')" :aria-pressed="($store.sidebar.layout === 'standard').toString()">
++                                    <span class="sbp-lay l-standard"><i></i></span>Standard
++                                </button>
++                                <button type="button" class="sbp-style" title="Narrow bar with the label under each icon" @click="$store.sidebar.set('layout', 'stacked')" :aria-pressed="($store.sidebar.layout === 'stacked').toString()">
++                                    <span class="sbp-lay l-stacked"><i></i></span>Compact
++                                </button>
++                                <button type="button" class="sbp-style" title="A detached rounded panel" @click="$store.sidebar.set('layout', 'floating')" :aria-pressed="($store.sidebar.layout === 'floating').toString()">
++                                    <span class="sbp-lay l-floating"><i></i></span>Floating
++                                </button>
++                                <button type="button" class="sbp-style" title="Menu on the right-hand side" @click="$store.sidebar.set('layout', 'right')" :aria-pressed="($store.sidebar.layout === 'right').toString()">
++                                    <span class="sbp-lay l-right"><i></i></span>Right
++                                </button>
++                                <button type="button" class="sbp-style" title="Menu across the top" @click="$store.sidebar.set('layout', 'top')" :aria-pressed="($store.sidebar.layout === 'top').toString()">
++                                    <span class="sbp-lay l-top"><i></i></span>Top
++                                </button>
++                            </div>
++                            </div>
+ 
+-                <p class="sbp-label">Design</p>
+-                <div class="sbp-styles" style="--cols:4">
+-                    <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'classic')" :aria-pressed="($store.sidebar.style === 'classic').toString()">
+-                        <span class="sbp-mini m-classic"><b></b><b class="on"></b><b></b></span>Default
+-                    </button>
+-                    <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'light')" :aria-pressed="($store.sidebar.style === 'light').toString()">
+-                        <span class="sbp-mini m-light"><b></b><b class="on"></b><b></b></span>Light
+-                    </button>
+-                    <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'navy')" :aria-pressed="($store.sidebar.style === 'navy').toString()">
+-                        <span class="sbp-mini m-navy"><b></b><b class="on"></b><b></b></span>Navy
+-                    </button>
+-                    <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'pill')" :aria-pressed="($store.sidebar.style === 'pill').toString()">
+-                        <span class="sbp-mini m-pill"><b></b><b class="on"></b><b></b></span>Pill
+-                    </button>
+-                    <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'gradient')" :aria-pressed="($store.sidebar.style === 'gradient').toString()">
+-                        <span class="sbp-mini m-gradient"><b></b><b class="on"></b><b></b></span>Gradient
+-                    </button>
+-                    <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'glass')" :aria-pressed="($store.sidebar.style === 'glass').toString()">
+-                        <span class="sbp-mini m-glass"><b></b><b class="on"></b><b></b></span>Glass
+-                    </button>
+-                    <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'tab')" :aria-pressed="($store.sidebar.style === 'tab').toString()">
+-                        <span class="sbp-mini m-tab"><b></b><b class="on"></b><b></b></span>Tab
+-                    </button>
+-                </div>
++                            <p class="sbp-label">Design</p>
++                            <div class="sbp-styles" style="--cols:4">
++                                <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'classic')" :aria-pressed="($store.sidebar.style === 'classic').toString()">
++                                    <span class="sbp-mini m-classic"><b></b><b class="on"></b><b></b></span>Default
++                                </button>
++                                <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'light')" :aria-pressed="($store.sidebar.style === 'light').toString()">
++                                    <span class="sbp-mini m-light"><b></b><b class="on"></b><b></b></span>Light
++                                </button>
++                                <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'navy')" :aria-pressed="($store.sidebar.style === 'navy').toString()">
++                                    <span class="sbp-mini m-navy"><b></b><b class="on"></b><b></b></span>Navy
++                                </button>
++                                <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'pill')" :aria-pressed="($store.sidebar.style === 'pill').toString()">
++                                    <span class="sbp-mini m-pill"><b></b><b class="on"></b><b></b></span>Pill
++                                </button>
++                                <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'gradient')" :aria-pressed="($store.sidebar.style === 'gradient').toString()">
++                                    <span class="sbp-mini m-gradient"><b></b><b class="on"></b><b></b></span>Gradient
++                                </button>
++                                <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'glass')" :aria-pressed="($store.sidebar.style === 'glass').toString()">
++                                    <span class="sbp-mini m-glass"><b></b><b class="on"></b><b></b></span>Glass
++                                </button>
++                                <button type="button" class="sbp-style" @click="$store.sidebar.set('style', 'tab')" :aria-pressed="($store.sidebar.style === 'tab').toString()">
++                                    <span class="sbp-mini m-tab"><b></b><b class="on"></b><b></b></span>Tab
++                                </button>
++                            </div>
+ 
+-                <p class="sbp-label">Sidebar colour</p>
+-                <div class="sbp-swatches" role="group" aria-label="Sidebar colour">
+-                    <button type="button" class="sbp-sw sbp-auto" title="Automatic (follows the design)" aria-label="Automatic" @click="$store.sidebar.set('bg', 'auto')" :aria-pressed="($store.sidebar.bg === 'auto').toString()"></button>
+-                    <button type="button" class="sbp-sw" title="White" aria-label="White" style="background:#ffffff" @click="$store.sidebar.set('bg', '#ffffff')" :aria-pressed="($store.sidebar.bg === '#ffffff').toString()"></button>
+-                    <button type="button" class="sbp-sw" title="Charcoal" aria-label="Charcoal" style="background:#0f172a" @click="$store.sidebar.set('bg', '#0f172a')" :aria-pressed="($store.sidebar.bg === '#0f172a').toString()"></button>
+-                    <button type="button" class="sbp-sw" title="Navy" aria-label="Navy" style="background:#12284a" @click="$store.sidebar.set('bg', '#12284a')" :aria-pressed="($store.sidebar.bg === '#12284a').toString()"></button>
+-                    <button type="button" class="sbp-sw" title="Teal" aria-label="Teal" style="background:#134e4a" @click="$store.sidebar.set('bg', '#134e4a')" :aria-pressed="($store.sidebar.bg === '#134e4a').toString()"></button>
+-                    <button type="button" class="sbp-sw" title="Plum" aria-label="Plum" style="background:#3b0764" @click="$store.sidebar.set('bg', '#3b0764')" :aria-pressed="($store.sidebar.bg === '#3b0764').toString()"></button>
+-                    <button type="button" class="sbp-sw" title="Maroon" aria-label="Maroon" style="background:#7f1d1d" @click="$store.sidebar.set('bg', '#7f1d1d')" :aria-pressed="($store.sidebar.bg === '#7f1d1d').toString()"></button>
+-                    <label class="sbp-sw sbp-pick" title="Pick any colour"><input type="color" :value="$store.sidebar.bg === 'auto' ? '#12284a' : $store.sidebar.bg" @input="$store.sidebar.set('bg', $event.target.value)" aria-label="Custom sidebar colour"></label>
+-                </div>
++                            <p class="sbp-label">Sidebar colour</p>
++                            <div class="sbp-swatches" role="group" aria-label="Sidebar colour">
++                                <button type="button" class="sbp-sw sbp-auto" title="Automatic (follows the design)" aria-label="Automatic" @click="$store.sidebar.set('bg', 'auto')" :aria-pressed="($store.sidebar.bg === 'auto').toString()"></button>
++                                <button type="button" class="sbp-sw" title="White" aria-label="White" style="background:#ffffff" @click="$store.sidebar.set('bg', '#ffffff')" :aria-pressed="($store.sidebar.bg === '#ffffff').toString()"></button>
++                                <button type="button" class="sbp-sw" title="Charcoal" aria-label="Charcoal" style="background:#0f172a" @click="$store.sidebar.set('bg', '#0f172a')" :aria-pressed="($store.sidebar.bg === '#0f172a').toString()"></button>
++                                <button type="button" class="sbp-sw" title="Navy" aria-label="Navy" style="background:#12284a" @click="$store.sidebar.set('bg', '#12284a')" :aria-pressed="($store.sidebar.bg === '#12284a').toString()"></button>
++                                <button type="button" class="sbp-sw" title="Teal" aria-label="Teal" style="background:#134e4a" @click="$store.sidebar.set('bg', '#134e4a')" :aria-pressed="($store.sidebar.bg === '#134e4a').toString()"></button>
++                                <button type="button" class="sbp-sw" title="Plum" aria-label="Plum" style="background:#3b0764" @click="$store.sidebar.set('bg', '#3b0764')" :aria-pressed="($store.sidebar.bg === '#3b0764').toString()"></button>
++                                <button type="button" class="sbp-sw" title="Maroon" aria-label="Maroon" style="background:#7f1d1d" @click="$store.sidebar.set('bg', '#7f1d1d')" :aria-pressed="($store.sidebar.bg === '#7f1d1d').toString()"></button>
++                                <label class="sbp-sw sbp-pick" title="Pick any colour"><input type="color" :value="$store.sidebar.bg === 'auto' ? '#12284a' : $store.sidebar.bg" @input="$store.sidebar.set('bg', $event.target.value)" aria-label="Custom sidebar colour"></label>
++                            </div>
+ 
+-                <p class="sbp-label">Accent colour</p>
+-                <div class="sbp-swatches" role="group" aria-label="Accent colour">
+-                    <button type="button" class="sbp-sw sbp-auto" title="Automatic" aria-label="Automatic" @click="$store.sidebar.set('accent', 'auto')" :aria-pressed="($store.sidebar.accent === 'auto').toString()"></button>
+-                    <button type="button" class="sbp-sw" title="Blue" aria-label="Blue" style="background:#2563eb" @click="$store.sidebar.set('accent', '#2563eb')" :aria-pressed="($store.sidebar.accent === '#2563eb').toString()"></button>
+-                    <button type="button" class="sbp-sw" title="Sky" aria-label="Sky" style="background:#0ea5e9" @click="$store.sidebar.set('accent', '#0ea5e9')" :aria-pressed="($store.sidebar.accent === '#0ea5e9').toString()"></button>
+-                    <button type="button" class="sbp-sw" title="Violet" aria-label="Violet" style="background:#7c3aed" @click="$store.sidebar.set('accent', '#7c3aed')" :aria-pressed="($store.sidebar.accent === '#7c3aed').toString()"></button>
+-                    <button type="button" class="sbp-sw" title="Emerald" aria-label="Emerald" style="background:#059669" @click="$store.sidebar.set('accent', '#059669')" :aria-pressed="($store.sidebar.accent === '#059669').toString()"></button>
+-                    <button type="button" class="sbp-sw" title="Rose" aria-label="Rose" style="background:#e11d48" @click="$store.sidebar.set('accent', '#e11d48')" :aria-pressed="($store.sidebar.accent === '#e11d48').toString()"></button>
+-                    <button type="button" class="sbp-sw" title="Amber" aria-label="Amber" style="background:#f59e0b" @click="$store.sidebar.set('accent', '#f59e0b')" :aria-pressed="($store.sidebar.accent === '#f59e0b').toString()"></button>
+-                    <label class="sbp-sw sbp-pick" title="Pick any colour"><input type="color" :value="$store.sidebar.accent === 'auto' ? '#2563eb' : $store.sidebar.accent" @input="$store.sidebar.set('accent', $event.target.value)" aria-label="Custom accent colour"></label>
+-                </div>
++                            <p class="sbp-label">Accent colour</p>
++                            <div class="sbp-swatches" role="group" aria-label="Accent colour">
++                                <button type="button" class="sbp-sw sbp-auto" title="Automatic" aria-label="Automatic" @click="$store.sidebar.set('accent', 'auto')" :aria-pressed="($store.sidebar.accent === 'auto').toString()"></button>
++                                <button type="button" class="sbp-sw" title="Blue" aria-label="Blue" style="background:#2563eb" @click="$store.sidebar.set('accent', '#2563eb')" :aria-pressed="($store.sidebar.accent === '#2563eb').toString()"></button>
++                                <button type="button" class="sbp-sw" title="Sky" aria-label="Sky" style="background:#0ea5e9" @click="$store.sidebar.set('accent', '#0ea5e9')" :aria-pressed="($store.sidebar.accent === '#0ea5e9').toString()"></button>
++                                <button type="button" class="sbp-sw" title="Violet" aria-label="Violet" style="background:#7c3aed" @click="$store.sidebar.set('accent', '#7c3aed')" :aria-pressed="($store.sidebar.accent === '#7c3aed').toString()"></button>
++                                <button type="button" class="sbp-sw" title="Emerald" aria-label="Emerald" style="background:#059669" @click="$store.sidebar.set('accent', '#059669')" :aria-pressed="($store.sidebar.accent === '#059669').toString()"></button>
++                                <button type="button" class="sbp-sw" title="Rose" aria-label="Rose" style="background:#e11d48" @click="$store.sidebar.set('accent', '#e11d48')" :aria-pressed="($store.sidebar.accent === '#e11d48').toString()"></button>
++                                <button type="button" class="sbp-sw" title="Amber" aria-label="Amber" style="background:#f59e0b" @click="$store.sidebar.set('accent', '#f59e0b')" :aria-pressed="($store.sidebar.accent === '#f59e0b').toString()"></button>
++                                <label class="sbp-sw sbp-pick" title="Pick any colour"><input type="color" :value="$store.sidebar.accent === 'auto' ? '#2563eb' : $store.sidebar.accent" @input="$store.sidebar.set('accent', $event.target.value)" aria-label="Custom accent colour"></label>
++                            </div>
+ 
+-                <p class="sbp-label">Spacing</p>
+-                <div class="sbp-seg" role="group" aria-label="Spacing">
+-                    <button type="button" @click="$store.sidebar.set('density', 'comfortable')" :aria-pressed="($store.sidebar.density === 'comfortable').toString()">Comfortable</button>
+-                    <button type="button" @click="$store.sidebar.set('density', 'compact')" :aria-pressed="($store.sidebar.density === 'compact').toString()">Compact</button>
+-                </div>
++                            <p class="sbp-label">Spacing</p>
++                            <div class="sbp-seg" role="group" aria-label="Spacing">
++                                <button type="button" @click="$store.sidebar.set('density', 'comfortable')" :aria-pressed="($store.sidebar.density === 'comfortable').toString()">Comfortable</button>
++                                <button type="button" @click="$store.sidebar.set('density', 'compact')" :aria-pressed="($store.sidebar.density === 'compact').toString()">Compact</button>
++                            </div>
+ 
+-                <div class="sbp-row hidden lg:flex" x-show="$store.sidebar.layout === 'standard'">
+-                    <span id="sb-collapse-label">Icons only <span style="font-weight:400;color:#94a3b8">( [ )</span></span>
+-                    <button type="button" class="sbp-switch" role="switch" aria-labelledby="sb-collapse-label" @click="$store.sidebar.toggle()" :aria-checked="$store.sidebar.collapsed.toString()"></button>
+-                </div>
++                            <div class="sbp-row hidden lg:flex" x-show="$store.sidebar.layout === 'standard'">
++                                <span id="sb-collapse-label">Icons only <span style="font-weight:400;color:#94a3b8">( [ )</span></span>
++                                <button type="button" class="sbp-switch" role="switch" aria-labelledby="sb-collapse-label" @click="$store.sidebar.toggle()" :aria-checked="$store.sidebar.collapsed.toString()"></button>
++                            </div>
+ 
+-                <button type="button" class="sbp-reset" @click="$store.sidebar.reset()">Reset to default</button>
+-                <p class="sbp-note">Saved on this device for your account.</p>
+-            </div>
++                            <p class="sbp-note">Saved on this device for your account.</p>
++                        </div>
++
++                        <div class="sbp-foot">
++                            <button type="button" class="sbp-reset" @click="$store.sidebar.reset()">Reset to default</button>
++                            <button type="button" class="sbp-done" @click="pop = false">Done</button>
++                        </div>
++                    </div>
++                </div>
++            </template>
+         </div>
+     </aside>
+ 
+@@ -282,10 +303,10 @@
+             <button type="button" @click="$store.sidebar.toggle()" class="sb-topbtn" :aria-label="$store.sidebar.collapsed ? 'Open sidebar' : 'Close sidebar'" :title="$store.sidebar.collapsed ? 'Open sidebar  ( [ )' : 'Close sidebar  ( [ )'">
+                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
+             </button>
+-            <button @click="open = true" class="rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Open menu">
++            <button @click="open = true" class="mn-hide-phone rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Open menu">
+                 <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+             </button>
+-            <div class="text-lg font-semibold text-brand-800">{{ $header ?? '' }}</div>
++            <div class="min-w-0 truncate text-lg font-semibold text-brand-800">{{ $header ?? '' }}</div>
+             @if ($theme['icon'])
+                 <span class="hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider md:inline-flex {{ $theme['headerPill'] }}">
+                     <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{!! $theme['icon'] !!}</svg>
+@@ -357,6 +378,7 @@
+         </main>
+     </div>
+ 
++    @include('layouts.partials.mobile-nav')
+     @include('layouts.partials.photo-viewer')
+     @include('layouts.partials.command-palette')
+ </body>
+diff -ruN a/resources/views/layouts/partials/mobile-nav.blade.php b/resources/views/layouts/partials/mobile-nav.blade.php
+--- a/resources/views/layouts/partials/mobile-nav.blade.php	1970-01-01 00:00:00.000000000 +0000
++++ b/resources/views/layouts/partials/mobile-nav.blade.php	2026-11-22 13:52:42.260334533 +0000
+@@ -0,0 +1,192 @@
++{{-- Phone navigation (< 768px): a bottom tab bar with a "More" sheet. Laptops and tablets keep the sidebar.
++     Uses the variables prepared in layouts/app.blade.php ($nav, $navAllowed, $icons, $isUser, $pendingFeed, $todayBookings, $theme). --}}
++@php
++    // [route, short label, icon, active route patterns]
++    $tabDefs = $isUser
++        ? [['dashboard', 'Request', 'plus', 'dashboard|tickets.create'], ['tickets.index', 'Tickets', 'list', 'tickets.index|tickets.show|tickets.edit'], ['calendar.index', 'Calendar', 'calendar', 'calendar.*']]
++        : [['dashboard', 'Home', 'grid', 'dashboard'], ['tickets.index', 'Tickets', 'list', 'tickets.*'], ['schedule.index', 'Schedule', 'calendar', 'schedule.*']];
++
++    // Only offer a tab when this person is allowed to open that page.
++    $navByRoute = collect($nav)->keyBy(1);
++    $mnTabs     = collect($tabDefs)->filter(fn ($t) => isset($navByRoute[$t[0]]) && $navAllowed($navByRoute[$t[0]][3]))->values();
++    $tabRoutes  = $mnTabs->pluck(0)->all();
++    $moreItems  = collect($nav)->filter(fn ($n) => $navAllowed($n[3]) && ! in_array($n[1], $tabRoutes))->values();
++    $moreActive = $moreItems->contains(fn ($n) => request()->routeIs(explode('|', $n[2]))) || request()->routeIs('profile.*');
++
++    // Small counters shown on a tab or tile: the live "waiting for acceptance" queue and today's bookings.
++    $mnBadge = function (string $route) use ($pendingFeed, $todayBookings) {
++        if ($route === 'tickets.index' && $pendingFeed) return ['store', null];
++        if ($route === 'schedule.index' && $todayBookings > 0) return ['num', $todayBookings > 99 ? '99+' : $todayBookings];
++        return null;
++    };
++@endphp
++
++<div x-data="{ more: false, typing: false, unread: 0 }"
++     @unread-changed.window="unread = $event.detail"
++     @focusin.window="typing = $event.target.matches('input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=file]), textarea, select')"
++     @focusout.window="typing = false"
++     @keydown.escape.window="more = false"
++     x-effect="document.body.classList.toggle('mn-typing', typing); document.body.classList.toggle('sb-lock', more)">
++
++    <nav class="mn" aria-label="Primary">
++        @foreach ($mnTabs as [$route, $label, $icon, $pattern])
++            @php($active = request()->routeIs(explode('|', $pattern)))
++            @php($badge = $mnBadge($route))
++            <a href="{{ route($route) }}" class="mn-tab {{ $active ? 'is-active' : '' }}" @if ($active) aria-current="page" @endif>
++                <span class="mn-ico">
++                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="{{ $active ? 2 : 1.7 }}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{!! $icons[$icon] !!}</svg>
++                    @if ($badge && $badge[0] === 'store')
++                        <span x-data x-show="$store.pending.count > 0" x-cloak x-text="$store.pending.count > 99 ? '99+' : $store.pending.count" class="mn-badge is-violet" aria-label="Tickets waiting for acceptance"></span>
++                    @elseif ($badge)
++                        <span class="mn-badge" aria-label="{{ $badge[1] }} booked for today">{{ $badge[1] }}</span>
++                    @endif
++                </span>
++                <span class="mn-lbl">{{ $label }}</span>
++            </a>
++        @endforeach
++
++        <a href="{{ route('notifications.index') }}" class="mn-tab {{ request()->routeIs('notifications.*') ? 'is-active' : '' }}" @if (request()->routeIs('notifications.*')) aria-current="page" @endif>
++            <span class="mn-ico">
++                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/></svg>
++                <span x-show="unread > 0" x-cloak x-text="unread > 9 ? '9+' : unread" class="mn-badge" :aria-label="unread + ' unread notifications'"></span>
++            </span>
++            <span class="mn-lbl">Alerts</span>
++        </a>
++
++        <button type="button" class="mn-tab {{ $moreActive ? 'is-active' : '' }}" @click="more = true" :aria-expanded="more.toString()" aria-haspopup="dialog">
++            <span class="mn-ico">
++                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/></svg>
++            </span>
++            <span class="mn-lbl">More</span>
++        </button>
++    </nav>
++
++    {{-- "More" sheet --}}
++    <div x-show="more" x-cloak class="mnm-root"
++         x-effect="if (more) $nextTick(() => { const b = $el.querySelector('.mnm-x'); b && b.focus({ preventScroll: true }) })">
++        <div class="mnm-backdrop" @click="more = false" aria-hidden="true"></div>
++        <div class="mnm-sheet" role="dialog" aria-modal="true" aria-label="More">
++            <span class="mnm-grab" aria-hidden="true"></span>
++
++            <div class="mnm-head">
++                <a href="{{ route('profile.edit') }}" class="mnm-me">
++                    <x-avatar :user="auth()->user()" :zoom="false" size="h-11 w-11" text="text-sm" />
++                    <span class="mnm-me-text">
++                        <span class="mnm-me-name">{{ auth()->user()->name }}</span>
++                        <span class="mnm-me-sub">{{ auth()->user()->company ?: auth()->user()->roleLabel() }}</span>
++                    </span>
++                </a>
++                <button type="button" class="mnm-x" @click="more = false" aria-label="Close">
++                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
++                </button>
++            </div>
++
++            <div class="mnm-body">
++                <div class="mnm-grid">
++                    @foreach ($moreItems as [$label, $route, $pattern, $roles, $icon, $grp])
++                        @php($active = request()->routeIs(explode('|', $pattern)))
++                        @php($badge = $mnBadge($route))
++                        <a href="{{ route($route) }}" class="mnm-tile {{ $active ? 'is-active' : '' }}" @if ($active) aria-current="page" @endif>
++                            <span class="mnm-tile-ico">
++                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{!! $icons[$icon] !!}</svg>
++                                @if ($badge && $badge[0] === 'num') <span class="mn-badge">{{ $badge[1] }}</span> @endif
++                            </span>
++                            <span class="mnm-tile-lbl">{{ $label }}</span>
++                        </a>
++                    @endforeach
++                    <a href="{{ route('profile.edit') }}" class="mnm-tile {{ request()->routeIs('profile.*') ? 'is-active' : '' }}">
++                        <span class="mnm-tile-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{!! $icons['profile'] !!}</svg></span>
++                        <span class="mnm-tile-lbl">My profile</span>
++                    </a>
++                </div>
++            </div>
++
++            <form method="POST" action="{{ route('logout') }}" class="mnm-foot">
++                @csrf
++                <button type="submit" class="mnm-logout">
++                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 12H3.5M7 8l-4 4 4 4M10 5V4.5A1.5 1.5 0 0 1 11.5 3h7A1.5 1.5 0 0 1 20 4.5v15a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 10 19.5V19"/></svg>
++                    Log out
++                </button>
++            </form>
++        </div>
++    </div>
++</div>
++
++<style>
++    .mn, .mnm-root, .mn-fab { display: none; }
++
++    @media (max-width: 767px) {
++        /* The slide-out sidebar and the desktop-only header buttons give way to the bottom bar. */
++        aside.sb, .sb-handle, .mn-hide-phone { display: none !important; }
++        .sb-main { padding-bottom: calc(4.4rem + env(safe-area-inset-bottom, 0px)); }
++        body.mn-typing .mn, body.mn-typing .mn-fab { display: none; }
++
++        .mn { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: rgba(255,255,255,.96); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border-top: 1px solid #e2e8f0; box-shadow: 0 -8px 24px -16px rgba(15,23,42,.35); padding: .3rem max(.25rem, env(safe-area-inset-right)) calc(.3rem + env(safe-area-inset-bottom, 0px)) max(.25rem, env(safe-area-inset-left)); }
++        .mn-tab { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: .2rem; padding: .15rem 0; border: 0; background: transparent; color: #64748b; font-size: .6875rem; font-weight: 600; line-height: 1.1; text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
++        .mn-tab:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; border-radius: .75rem; }
++        .mn-ico { position: relative; display: grid; place-items: center; width: 3.4rem; height: 1.85rem; border-radius: 9999px; transition: background-color .2s ease, transform .15s ease; }
++        .mn-ico svg { width: 1.45rem; height: 1.45rem; }
++        .mn-tab:active .mn-ico { transform: scale(.92); }
++        .mn-tab.is-active { color: rgb(var(--brand-700)); }
++        .mn-tab.is-active .mn-ico { background: rgb(var(--brand-100)); }
++        .mn-lbl { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++        .mn-badge { position: absolute; top: -.2rem; right: .3rem; min-width: 1.1rem; height: 1.1rem; padding: 0 .3rem; border-radius: 9999px; background: #ef4444; color: #fff; font-size: .625rem; font-weight: 700; line-height: 1.1rem; text-align: center; box-shadow: 0 0 0 2px #fff; }
++        .mn-badge.is-violet { background: #7c3aed; }
++
++        /* Floating primary action (used by the tickets list) */
++        .mn-fab { position: fixed; right: 1rem; bottom: calc(4.4rem + env(safe-area-inset-bottom, 0px) + .9rem); z-index: 29; display: inline-flex; align-items: center; gap: .45rem; height: 3.25rem; padding: 0 1.1rem 0 .95rem; border-radius: 9999px; background: rgb(var(--brand-600)); color: #fff; font-size: .875rem; font-weight: 600; text-decoration: none; box-shadow: 0 10px 24px -8px rgba(15,23,42,.55); -webkit-tap-highlight-color: transparent; }
++        .mn-fab:active { transform: scale(.96); }
++        .mn-fab svg { width: 1.2rem; height: 1.2rem; }
++
++        /* More sheet */
++        .mnm-root { display: block; position: fixed; inset: 0; z-index: 45; }
++        .mnm-root[style*="display: none"] { display: none; }
++        .mnm-backdrop { position: absolute; inset: 0; background: rgba(15,23,42,.5); }
++        .mnm-sheet { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; max-height: 88vh; max-height: 88dvh; background: #fff; border-radius: 1.25rem 1.25rem 0 0; box-shadow: 0 -20px 50px -20px rgba(15,23,42,.5); animation: mnm-up .22s ease-out; }
++        .mnm-grab { display: block; width: 2.5rem; height: .3rem; margin: .55rem auto 0; border-radius: 9999px; background: #cbd5e1; }
++        .mnm-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .7rem 1rem .5rem; }
++        .mnm-me { display: flex; align-items: center; gap: .75rem; min-width: 0; text-decoration: none; color: inherit; }
++        .mnm-me-text { min-width: 0; }
++        .mnm-me-name, .mnm-me-sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++        .mnm-me-name { font-size: .95rem; font-weight: 700; color: #0f172a; }
++        .mnm-me-sub { font-size: .75rem; color: #64748b; }
++        .mnm-x { display: inline-grid; place-items: center; flex: none; width: 2.5rem; height: 2.5rem; border: 0; border-radius: 9999px; background: #f1f5f9; color: #475569; cursor: pointer; }
++        .mnm-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: .5rem 1rem 1rem; }
++        .mnm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; }
++        .mnm-tile { display: flex; flex-direction: column; align-items: center; gap: .45rem; padding: .85rem .35rem .7rem; border-radius: 1rem; background: #f8fafc; border: 1px solid #e2e8f0; color: #334155; text-decoration: none; text-align: center; -webkit-tap-highlight-color: transparent; }
++        .mnm-tile:active { transform: scale(.96); }
++        .mnm-tile.is-active { background: rgb(var(--brand-50)); border-color: rgb(var(--brand-200)); color: rgb(var(--brand-700)); }
++        .mnm-tile-ico { position: relative; display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border-radius: .85rem; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.08); }
++        .mnm-tile-ico svg { width: 1.4rem; height: 1.4rem; }
++        .mnm-tile-lbl { font-size: .75rem; font-weight: 600; line-height: 1.2; }
++        .mnm-foot { flex: none; padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom, 0px)); border-top: 1px solid #e2e8f0; background: #f8fafc; }
++        .mnm-logout { display: flex; align-items: center; justify-content: center; gap: .5rem; width: 100%; min-height: 2.9rem; border: 0; border-radius: .8rem; background: #fff; color: #dc2626; font-size: .9rem; font-weight: 600; box-shadow: inset 0 0 0 1px #fecaca; cursor: pointer; }
++        .mnm-logout:active { background: #fef2f2; }
++
++        /* Sort & rows sheet (tickets list) */
++        .tkf-root { position: fixed; inset: 0; z-index: 45; }
++        .tkf-backdrop { position: absolute; inset: 0; background: rgba(15,23,42,.5); }
++        .tkf-sheet { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; max-height: 88vh; max-height: 88dvh; background: #fff; border-radius: 1.25rem 1.25rem 0 0; box-shadow: 0 -20px 50px -20px rgba(15,23,42,.5); animation: mnm-up .22s ease-out; }
++        .tkf-grab { display: block; width: 2.5rem; height: .3rem; margin: .55rem auto 0; border-radius: 9999px; background: #cbd5e1; }
++        .tkf-head { display: flex; align-items: center; justify-content: space-between; padding: .7rem 1rem .25rem; }
++        .tkf-x { display: inline-grid; place-items: center; width: 2.5rem; height: 2.5rem; border: 0; border-radius: 9999px; background: #f1f5f9; color: #475569; cursor: pointer; }
++        .tkf-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 1rem 1rem; }
++        .tkf-label { margin: .9rem 0 .4rem; font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #64748b; }
++        .tkf-list { overflow: hidden; border: 1px solid #e2e8f0; border-radius: .9rem; }
++        .tkf-opt { display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-height: 3rem; padding: 0 1rem; font-size: .9rem; color: #334155; cursor: pointer; }
++        .tkf-opt + .tkf-opt { border-top: 1px solid #f1f5f9; }
++        .tkf-opt.is-on { background: rgb(var(--brand-50)); color: rgb(var(--brand-700)); font-weight: 600; }
++        .tkf-opt:focus-within { outline: 2px solid #2563eb; outline-offset: -2px; }
++        .tkf-seg { display: flex; padding: .2rem; border-radius: .8rem; background: #f1f5f9; }
++        .tkf-seg label { flex: 1; cursor: pointer; }
++        .tkf-seg span { display: block; padding: .65rem 0; border-radius: .65rem; text-align: center; font-size: .875rem; font-weight: 600; color: #475569; }
++        .tkf-seg input:checked + span { background: #fff; color: #0f172a; box-shadow: 0 1px 3px rgba(15,23,42,.18); }
++        .tkf-seg input:focus-visible + span { outline: 2px solid #2563eb; }
++        .tkf-foot { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom, 0px)); border-top: 1px solid #e2e8f0; background: #f8fafc; }
++        .tkf-reset { padding: .5rem 0; font-size: .85rem; font-weight: 600; color: #64748b; text-decoration: underline; }
++        .tkf-apply { min-width: 8rem; min-height: 2.9rem; border: 0; border-radius: .8rem; background: rgb(var(--brand-800)); color: #fff; font-size: .9rem; font-weight: 600; cursor: pointer; }
++        .tkf-apply:active { background: rgb(var(--brand-700)); }
++        @keyframes mnm-up { from { transform: translateY(100%); } to { transform: none; } }
++        @media (prefers-reduced-motion: reduce) { .mnm-sheet, .tkf-sheet { animation: none; } .mn-ico { transition: none; } }
++    }
++</style>
+diff -ruN a/resources/views/layouts/partials/notification-bell.blade.php b/resources/views/layouts/partials/notification-bell.blade.php
+--- a/resources/views/layouts/partials/notification-bell.blade.php	2026-11-22 13:35:35.636980589 +0000
++++ b/resources/views/layouts/partials/notification-bell.blade.php	2026-11-22 13:51:43.271653421 +0000
+@@ -17,7 +17,7 @@
+     {{-- Bell button --}}
+     <button type="button" @click="open = !open" :aria-expanded="open"
+             :aria-label="unread ? 'Notifications, ' + unread + ' unread' : 'Notifications'"
+-            class="relative flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
++            class="mn-hide-phone relative flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+         <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+             <path d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/>
+         </svg>
+diff -ruN a/resources/views/layouts/partials/sidebar-assets.blade.php b/resources/views/layouts/partials/sidebar-assets.blade.php
+--- a/resources/views/layouts/partials/sidebar-assets.blade.php	2026-11-22 13:35:35.637000383 +0000
++++ b/resources/views/layouts/partials/sidebar-assets.blade.php	2026-11-22 13:37:59.272554192 +0000
+@@ -353,7 +353,6 @@
+         html[data-sb-layout="right"] .sb-handle { right: auto; left: -.9rem; }
+         html[data-sb-layout="right"] .sb-handle svg { transform: rotate(180deg); }
+         html[data-sb-layout="right"][data-sb-collapsed="1"] .sb-handle svg { transform: rotate(0deg); }
+-        html[data-sb-layout="right"] .sb-pop { left: auto; right: calc(100% + .75rem); }
+         html[data-sb-layout="right"] .sb-tip { left: auto; right: calc(100% + .9rem); }
+ 
+         /* Top: menu across the top, the page header sits below it */
+@@ -377,7 +376,6 @@
+         html[data-sb-layout="top"] .sb .sb-customise { width: 2.5rem; padding: 0; justify-content: center; }
+         html[data-sb-layout="top"] .sb .sb-customise .sb-label { display: none; }
+         html[data-sb-layout="top"] .sb .sb-link { padding-left: .6rem !important; padding-right: .6rem !important; }
+-        html[data-sb-layout="top"] .sb .sb-pop { bottom: auto; left: auto; top: calc(100% + .5rem); right: .75rem; }
+     }
+ 
+     @media (min-width: 1024px) and (max-width: 1599px) { html[data-sb-layout="top"] .sb .sb-brand-text { display: none; } }
+@@ -424,15 +422,42 @@
+     html[data-sb-bg="custom"][data-sb-style="glass"] .sb .sb-user-role { color: var(--sb-fg2); }
+ 
+     /* ---- Customise panel ---- */
+-    .sb-pop { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; padding-bottom: 1.25rem !important; position: absolute; z-index: 60; bottom: .5rem; left: calc(100% + .75rem); width: 20rem; max-height: calc(100vh - 2rem); overflow-y: auto; background: #fff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 1rem; padding: 1rem; box-shadow: 0 24px 60px -20px rgba(15,23,42,.4); text-align: left; font-size: .8125rem; }
+-    @media (max-width: 1023px) { .sb-pop { left: .5rem; right: .5rem; bottom: 100%; width: auto; } }
+-    .sb-pop::-webkit-scrollbar { width: 8px; }
+-    .sb-pop::-webkit-scrollbar-track { background: transparent; }
+-    .sb-pop::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; border: 2px solid #fff; }
+-    .sb-pop::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+-    .sbp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .75rem; }
+-    .sbp-title { font-size: .9rem; font-weight: 700; }
+-    .sbp-x { border: 0; background: transparent; cursor: pointer; color: #64748b; border-radius: .5rem; padding: .25rem; }
++    /* The panel is moved to <body> (x-teleport) so it is never clipped by, or positioned inside, the sidebar.
++       Phones and tablets (< 1024px): a bottom sheet. Laptops and desktops: a floating panel next to the sidebar. */
++    .sbp-root { position: fixed; inset: 0; z-index: 80; }
++    .sbp-backdrop { position: absolute; inset: 0; background: rgba(15,23,42,.5); }
++    .sb-pop { position: fixed; z-index: 81; display: flex; flex-direction: column; width: 20rem; max-width: calc(100vw - 1.5rem); max-height: calc(100vh - 2rem); max-height: calc(100dvh - 2rem); overflow: hidden; background: #fff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 1rem; box-shadow: 0 24px 60px -20px rgba(15,23,42,.4); text-align: left; font-size: .8125rem; animation: sbp-in .2s ease-out; }
++    .sbp-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 0 1rem 1rem; scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
++    .sbp-body::-webkit-scrollbar { width: 8px; }
++    .sbp-body::-webkit-scrollbar-track { background: transparent; }
++    .sbp-body::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; border: 2px solid #fff; }
++    .sbp-body::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
++    .sbp-grab { display: none; width: 2.5rem; height: .3rem; margin: .5rem auto 0; border-radius: 9999px; background: #cbd5e1; }
++    .sbp-foot { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex: none; padding: .7rem 1rem; border-top: 1px solid #e2e8f0; background: #f8fafc; }
++    .sbp-done { border: 0; border-radius: .6rem; background: rgb(var(--brand-800)); color: #fff; padding: .5rem 1.1rem; font-size: .8125rem; font-weight: 600; cursor: pointer; }
++    .sbp-done:hover { background: rgb(var(--brand-700)); }
++    .sbp-done:focus-visible, .sbp-x:focus-visible, .sbp-reset:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
++    @keyframes sbp-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
++
++    @media (min-width: 1024px) {
++        .sbp-backdrop { background: transparent; }
++        .sb-pop { left: calc(var(--sb-w) + 1rem); bottom: 1rem; transition: left .25s ease; }
++        html[data-sb-layout="floating"] .sb-pop { left: calc(var(--sb-w) + 1.75rem); bottom: 1.5rem; }
++        html[data-sb-layout="right"] .sb-pop { left: auto; right: calc(var(--sb-w) + 1rem); }
++        html[data-sb-layout="top"] .sb-pop { left: auto; right: 1rem; bottom: auto; top: 4.25rem; max-height: calc(100vh - 5.25rem); max-height: calc(100dvh - 5.25rem); }
++    }
++    @media (max-width: 1023px) {
++        .sb-pop { left: 0; right: 0; bottom: 0; width: auto; max-width: 32rem; margin: 0 auto; max-height: 90vh; max-height: 90dvh; border-radius: 1.25rem 1.25rem 0 0; border-bottom-width: 0; animation-name: sbp-sheet; }
++        .sbp-grab { display: block; }
++        .sbp-foot { padding-bottom: calc(.7rem + env(safe-area-inset-bottom, 0px)); }
++        body.sb-lock { overflow: hidden; }
++        .sbp-row { display: none; }   /* "Icons only" is a laptop/desktop option */
++    }
++    @keyframes sbp-sheet { from { transform: translateY(100%); } to { transform: none; } }
++    @media (prefers-reduced-motion: reduce) { .sb-pop { animation: none !important; } }
++    .sbp-head { display: flex; flex: none; align-items: center; justify-content: space-between; gap: .75rem; padding: .85rem 1rem .5rem; }
++    .sbp-title { font-size: .95rem; font-weight: 700; }
++    .sbp-x { display: inline-grid; place-items: center; width: 2rem; height: 2rem; border: 0; background: transparent; cursor: pointer; color: #64748b; border-radius: .5rem; }
+     .sbp-x:hover { background: #f1f5f9; }
+     .sbp-label { margin: .75rem 0 .35rem; font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #64748b; }
+     .sbp-styles { display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr); gap: .4rem; }
+@@ -479,7 +504,38 @@
+     .sbp-switch::after { content: ""; position: absolute; top: .2rem; left: .2rem; width: 1rem; height: 1rem; border-radius: 9999px; background: #fff; transition: transform .2s ease; }
+     .sbp-switch[aria-checked="true"] { background: #1e3a5f; }
+     .sbp-switch[aria-checked="true"]::after { transform: translateX(1rem); }
+-    .sbp-reset { margin-top: 1rem; border: 0; background: transparent; padding: 0; font-size: .75rem; font-weight: 600; color: #64748b; cursor: pointer; text-decoration: underline; }
+-    .sbp-note { margin-top: .6rem; font-size: .7rem; color: #94a3b8; }
++    .sbp-reset { border: 0; background: transparent; padding: .25rem 0; font-size: .75rem; font-weight: 600; color: #64748b; cursor: pointer; text-decoration: underline; }
++    .sbp-note { margin-top: .6rem; font-size: .7rem; color: #64748b; }
++
++    /* =====================================================================
++       RESPONSIVE SHELL
++       ===================================================================== */
++    /* Phones / small tablets: the slide-out menu never wider than the screen, with bigger touch targets */
++    @media (max-width: 1023px) {
++        aside.sb { width: min(18rem, 88vw); box-shadow: 0 0 40px rgba(15,23,42,.35); }
++        aside.sb .sb-nav { overscroll-behavior: contain; }
++        aside.sb .sb-link { min-height: 2.75rem; }
++        aside.sb .sb-customise { min-height: 2.75rem; }
++    }
++    /* Small laptops (1024-1279px): slightly slimmer menu so the page keeps its room */
++    @media (min-width: 1024px) and (max-width: 1279px) { :root { --sb-w: 14.5rem; } }
++    /* Short laptop screens (e.g. 1366x768): tighter rows so the whole menu fits without scrolling */
++    @media (min-width: 1024px) and (max-height: 760px) {
++        html[data-sb-density="comfortable"][data-sb-layout="standard"] aside.sb .sb-link { min-height: 2.25rem; }
++        html[data-sb-density="comfortable"] .sb-heading { padding-top: .6rem !important; }
++    }
++    /* Touch: comfortable tap sizes inside the Customise panel */
++    @media (max-width: 1023px), (pointer: coarse) {
++        .sbp-x { width: 2.5rem; height: 2.5rem; }
++        .sbp-swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: .4rem; justify-items: center; }
++        .sbp-sw { width: 100%; max-width: 2.5rem; height: auto; aspect-ratio: 1; }
++        .sbp-seg button { min-height: 2.6rem; font-size: .8125rem; }
++        .sbp-style { padding: .4rem .2rem; font-size: .7rem; }
++        .sbp-switch { width: 3rem; height: 1.75rem; }
++        .sbp-switch::after { width: 1.35rem; height: 1.35rem; top: .2rem; left: .2rem; }
++        .sbp-switch[aria-checked="true"]::after { transform: translateX(1.25rem); }
++        .sbp-reset { padding: .6rem 0; }
++        .sbp-done { padding: .65rem 1.4rem; }
++    }
+     @media (prefers-reduced-motion: reduce) { aside.sb, .sb-main, .sb-link, .sb-handle { transition: none !important; } }
+ </style>
+diff -ruN a/resources/views/tickets/index.blade.php b/resources/views/tickets/index.blade.php
+--- a/resources/views/tickets/index.blade.php	2026-11-22 13:35:35.637214516 +0000
++++ b/resources/views/tickets/index.blade.php	2026-11-22 13:54:42.750071212 +0000
+@@ -14,6 +14,9 @@
+         $newUrl    = $isPartner ? route('dashboard') : route('tickets.create');
+         $hasFilter = $current !== '' || request()->filled('search');
+         $accent    = ['low' => 'bg-slate-300', 'medium' => 'bg-sky-400', 'high' => 'bg-orange-500', 'critical' => 'bg-red-600'];
++        $curSort    = request('sort') ? request('sort') . '|' . (request('dir') === 'asc' ? 'asc' : 'desc') : 'created_at|desc';
++        $perPageNow = $tickets->perPage();
++        $sheetActive = ($curSort !== 'created_at|desc' ? 1 : 0) + ($perPageNow !== 10 ? 1 : 0);
+         $sortOptions = [
+             ['value' => 'created_at|desc', 'label' => 'Newest first'],
+             ['value' => 'created_at|asc',  'label' => 'Oldest first'],
+@@ -48,16 +51,28 @@
+ 
+     {{-- Toolbar --}}
+     <div class="mb-4 space-y-3">
+-        <form method="GET" class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
++        <form method="GET" class="flex items-center gap-2 sm:justify-end">
+             @foreach (['status', 'sort', 'dir', 'per_page'] as $keep)
+                 @if (request()->filled($keep)) <input type="hidden" name="{{ $keep }}" value="{{ request($keep) }}"> @endif
+             @endforeach
+-            <div class="relative flex-1 sm:max-w-sm">
++            <div class="relative min-w-0 flex-1 sm:max-w-sm">
+                 <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path stroke-linecap="round" d="m20 20-3.5-3.5"/></svg>
+-                <input name="search" value="{{ request('search') }}" placeholder="{{ $isStaff ? 'Search subject, ticket no. or requester' : 'Search subject or ticket no.' }}"
+-                       class="w-full rounded-lg border-slate-300 py-2 pl-9 text-sm focus:border-brand-500 focus:ring-brand-500">
++                <input type="search" name="search" value="{{ request('search') }}" enterkeyhint="search" autocomplete="off"
++                       placeholder="{{ $isStaff ? 'Search subject, ticket no. or requester' : 'Search subject or ticket no.' }}"
++                       class="w-full truncate rounded-xl border-slate-300 py-2.5 pl-9 text-sm focus:border-brand-500 focus:ring-brand-500 sm:rounded-lg sm:py-2">
+             </div>
+-            <div class="flex gap-2">
++
++            {{-- Phones: sort and rows live in a sheet --}}
++            <button type="button" @click="$dispatch('open-tk-filters')" aria-haspopup="dialog"
++                    class="relative inline-flex h-[2.6rem] shrink-0 items-center gap-1.5 rounded-xl bg-white px-3.5 text-sm font-medium text-slate-700 ring-1 ring-slate-300 active:bg-slate-50 md:hidden">
++                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
++                Filters
++                @if ($sheetActive > 0)
++                    <span class="absolute -right-1 -top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-brand-600 px-1 text-[11px] font-bold text-white ring-2 ring-slate-50">{{ $sheetActive }}</span>
++                @endif
++            </button>
++
++            <div class="hidden gap-2 sm:flex">
+                 <button class="rounded-lg bg-brand-800 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">Search</button>
+                 @if ($hasFilter)
+                     <a href="{{ route('tickets.index') }}" class="rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-300 hover:bg-slate-50">Clear</a>
+@@ -70,11 +85,18 @@
+             </div>
+         </form>
+ 
+-        <div class="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
++        @if ($hasFilter)
++            <p class="flex items-center justify-between rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-800 sm:hidden">
++                <span>Showing filtered results</span>
++                <a href="{{ route('tickets.index') }}" class="font-semibold underline">Clear</a>
++            </p>
++        @endif
++
++        <div class="-mx-1 flex snap-x gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+             @foreach ($tabs as $value => $label)
+                 @php($n = $value === '' ? $counts->sum() : ($value === 'unassigned' ? $needsAssignment : ($counts[$value] ?? 0)))
+                 <a href="{{ request()->fullUrlWithQuery(['status' => $value ?: null, 'page' => null]) }}"
+-                   class="flex shrink-0 items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium transition {{ $current === $value ? 'bg-brand-800 text-white shadow-sm' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50' }}">
++                   class="flex shrink-0 snap-start items-center gap-2 rounded-full px-3.5 py-2 text-sm font-medium transition sm:py-1.5 {{ $current === $value ? 'bg-brand-800 text-white shadow-sm' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50' }}">
+                     {{ $label }}
+                     @if ($value === 'unassigned')
+                         <span x-data x-text="$store.pending.count" class="rounded-full px-1.5 text-xs transition-colors"
+@@ -87,6 +109,52 @@
+         </div>
+     </div>
+ 
++    {{-- Phones: Sort & rows sheet --}}
++    <div x-data="{ show: false, sv: @js($curSort) }" @open-tk-filters.window="show = true" @keydown.escape.window="show = false"
++         x-effect="document.body.classList.toggle('sb-lock', show)">
++        <div x-show="show" x-cloak class="tkf-root md:hidden">
++            <div class="tkf-backdrop" @click="show = false" aria-hidden="true"></div>
++            <form method="GET" action="{{ route('tickets.index') }}" class="tkf-sheet" role="dialog" aria-modal="true" aria-label="Sort and rows">
++                @foreach (['search', 'status'] as $keep)
++                    @if (request()->filled($keep)) <input type="hidden" name="{{ $keep }}" value="{{ request($keep) }}"> @endif
++                @endforeach
++                <input type="hidden" name="sort" :value="sv.split('|')[0]">
++                <input type="hidden" name="dir" :value="sv.split('|')[1]">
++
++                <span class="tkf-grab" aria-hidden="true"></span>
++                <div class="tkf-head">
++                    <h2 class="text-base font-bold text-slate-900">Sort &amp; rows</h2>
++                    <button type="button" @click="show = false" class="tkf-x" aria-label="Close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
++                </div>
++
++                <div class="tkf-body">
++                    <p class="tkf-label">Sort by</p>
++                    <div class="tkf-list" role="radiogroup" aria-label="Sort by">
++                        @foreach ($sortOptions as $o)
++                            <label class="tkf-opt" :class="sv === '{{ $o['value'] }}' ? 'is-on' : ''">
++                                <input type="radio" class="sr-only" value="{{ $o['value'] }}" :checked="sv === '{{ $o['value'] }}'" @change="sv = '{{ $o['value'] }}'">
++                                <span>{{ $o['label'] }}</span>
++                                <svg x-show="sv === '{{ $o['value'] }}'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
++                            </label>
++                        @endforeach
++                    </div>
++
++                    <p class="tkf-label">Tickets per page</p>
++                    <div class="tkf-seg">
++                        @foreach ([10, 25, 50] as $n)
++                            <label><input type="radio" class="sr-only peer" name="per_page" value="{{ $n }}" @checked($perPageNow === $n)><span>{{ $n }}</span></label>
++                        @endforeach
++                    </div>
++                </div>
++
++                <div class="tkf-foot">
++                    <a href="{{ request()->fullUrlWithQuery(['sort' => null, 'dir' => null, 'per_page' => null, 'page' => null]) }}" class="tkf-reset">Reset</a>
++                    <button type="submit" class="tkf-apply">Apply</button>
++                </div>
++            </form>
++        </div>
++    </div>
++
+     @if ($tickets->isEmpty())
+         <div class="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
+             <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+@@ -185,40 +253,80 @@
+             @endif
+         </div>
+ 
+-        {{-- Mobile cards --}}
++        {{-- Mobile cards: the whole card opens the ticket; buttons inside stay separate --}}
+         <div class="md:hidden">
+-            <x-table-controls :paginator="$tickets" :options="$sortOptions" default="created_at|desc" noun="ticket" />
++            <p class="mb-2.5 px-1 text-xs text-slate-500">
++                Showing <span class="font-semibold text-slate-700">{{ $tickets->firstItem() }}&ndash;{{ $tickets->lastItem() }}</span>
++                of <span class="font-semibold text-slate-700">{{ number_format($tickets->total()) }}</span> {{ \Illuminate\Support\Str::plural('ticket', $tickets->total()) }}
++            </p>
+             <div class="space-y-3">
+             @foreach ($tickets as $t)
+-                <div class="relative overflow-hidden rounded-xl border border-slate-200 bg-white p-4 pl-5 shadow-sm">
+-                    <span class="absolute inset-y-0 left-0 w-1 {{ $t->isFinished() ? 'bg-slate-200' : ($accent[$t->priority] ?? 'bg-slate-300') }}" aria-hidden="true"></span>
+-                    <div class="flex items-start justify-between gap-3">
+-                        <a href="{{ route('tickets.show', $t) }}" class="font-semibold text-slate-900 hover:text-brand-700">{{ $t->subject }}</a>
+-                        <x-ticket-pill :ticket="$t" class="shrink-0" />
++                @php($sla = $isStaff ? $t->slaBadge() : null)
++                @php($showActions = ($isAdmin && $t->status === 'open' && ! $t->assigned_to) || ($isEngineer && $t->support_type === 'onsite' && $t->directionsUrl() && ! $t->isFinished()) || ($isPartner && $t->isCancellable()))
++                <article class="relative overflow-hidden rounded-2xl border bg-white p-4 pl-5 shadow-sm transition active:bg-slate-50 [-webkit-tap-highlight-color:transparent] {{ $isStaff && $t->isOverdue() ? 'border-red-200 bg-red-50/40' : 'border-slate-200' }}">
++                    <span class="absolute inset-y-0 left-0 w-1.5 {{ $t->isFinished() ? 'bg-slate-200' : ($accent[$t->priority] ?? 'bg-slate-300') }}" aria-hidden="true"></span>
++
++                    <div class="flex items-center justify-between gap-2 text-[11px] text-slate-400">
++                        <span class="font-mono">{{ $t->ticket_no }}</span>
++                        <span title="{{ $t->created_at->format('M d, Y h:i A') }}">{{ $t->created_at->diffForHumans() }}</span>
+                     </div>
+-                    <p class="mt-0.5 font-mono text-xs text-slate-400">{{ $t->ticket_no }}</p>
+-                    <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
++
++                    <a href="{{ route('tickets.show', $t) }}" class="mt-1 line-clamp-2 block text-[15px] font-semibold leading-snug text-slate-900 after:absolute after:inset-0 after:content-['']">{{ $t->subject }}</a>
++
++                    <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
++                        <x-ticket-pill :ticket="$t" />
+                         <x-ticket-pill :ticket="$t" type="priority" />
+-                        @if ($isStaff) <span>{{ $t->user->name }}</span><x-admin-badge :user="$t->user" /> @endif <x-jms-requested-badge :ticket="$t" />
+-                        <span>&middot; {{ $t->assignee?->name ?? 'Unassigned' }}</span>
+-                        <span>&middot; {{ $t->created_at->diffForHumans() }}</span>
++                        <x-jms-requested-badge :ticket="$t" />
+                     </div>
+-                    <div class="mt-3 flex gap-2 border-t border-slate-100 pt-3">
+-                        <a href="{{ route('tickets.show', $t) }}" class="flex-1 rounded-lg py-2 text-center text-xs font-medium text-brand-700 ring-1 ring-brand-200 hover:bg-brand-50">View</a>
+-                        @if ($isAdmin && $t->status === 'open' && ! $t->assigned_to)
+-                            <a href="{{ route('tickets.show', $t) }}#assign" class="flex-1 rounded-lg bg-violet-600 py-2 text-center text-xs font-semibold text-white">Accept &amp; assign</a>
++                    @if ($sla) <p class="mt-2 text-xs {{ $sla[1] }}">{{ $sla[0] }}</p> @endif
++
++                    <div class="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3 text-xs">
++                        @if ($isStaff)
++                            <span class="flex min-w-0 items-center gap-2">
++                                <x-avatar :user="$t->user" size="h-7 w-7" text="text-[10px]" />
++                                <span class="min-w-0">
++                                    <span class="flex items-center gap-1.5 font-medium text-slate-800"><span class="truncate">{{ $t->user->name }}</span><x-admin-badge :user="$t->user" /></span>
++                                    @if ($t->user->company) <span class="block truncate text-slate-500">{{ $t->user->company }}</span> @endif
++                                </span>
++                            </span>
+                         @endif
+-                        @if ($isPartner && $t->isCancellable())
+-                            <button type="button" x-data x-on:click="$dispatch('open-modal', 'cancel-{{ $t->id }}')"
+-                                    class="flex-1 rounded-lg py-2 text-xs font-medium text-rose-700 ring-1 ring-rose-200 hover:bg-rose-50">Cancel</button>
++                        @if ($t->assignee)
++                            <span class="flex shrink-0 items-center gap-1.5 text-slate-600">
++                                <x-avatar :user="$t->assignee" size="h-6 w-6" text="text-[9px]" />
++                                <span class="max-w-[6.5rem] truncate">{{ $t->assignee->name }}</span>
++                            </span>
++                        @else
++                            <span class="shrink-0 rounded-full border border-dashed border-slate-300 px-2.5 py-0.5 text-slate-400">Unassigned</span>
+                         @endif
+                     </div>
+-                </div>
++
++                    @if ($showActions)
++                        <div class="relative z-10 mt-3 flex gap-2">
++                            @if ($isAdmin && $t->status === 'open' && ! $t->assigned_to)
++                                <a href="{{ route('tickets.show', $t) }}#assign" class="flex-1 rounded-xl bg-violet-600 py-2.5 text-center text-sm font-semibold text-white active:bg-violet-700">Accept &amp; assign</a>
++                            @endif
++                            @if ($isEngineer && $t->support_type === 'onsite' && $t->directionsUrl() && ! $t->isFinished())
++                                <a href="{{ $t->directionsUrl() }}" target="_blank" rel="noopener" class="flex-1 rounded-xl py-2.5 text-center text-sm font-medium text-slate-700 ring-1 ring-slate-300 active:bg-slate-50">Directions</a>
++                            @endif
++                            @if ($isPartner && $t->isCancellable())
++                                <button type="button" x-data x-on:click="$dispatch('open-modal', 'cancel-{{ $t->id }}')"
++                                        class="flex-1 rounded-xl py-2.5 text-sm font-medium text-rose-700 ring-1 ring-rose-200 active:bg-rose-50">Cancel request</button>
++                            @endif
++                        </div>
++                    @endif
++                </article>
+             @endforeach
+             @if ($tickets->hasPages()) <div class="pt-2">{{ $tickets->links() }}</div> @endif
+             </div>
+         </div>
+ 
++        @if ($canLog && ! $isPartner)
++            <a href="{{ $newUrl }}" class="mn-fab" aria-label="New ticket">
++                <svg fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
++                New ticket
++            </a>
++        @endif
++
+         @if ($isPartner)
+             @foreach ($tickets->getCollection()->filter->isCancellable() as $t)
+                 @include('tickets._cancel-modal', ['ticket' => $t])
