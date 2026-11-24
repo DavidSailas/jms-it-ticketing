@@ -1,15 +1,39 @@
 {{-- Sidebar preferences (layout, design, colours, spacing, collapsed, closed groups). Kept per person, per browser, in localStorage. --}}
 @php($sbKey = 'jms.sidebar.v3.' . auth()->id())
+@php($sbImgOk = \App\Support\Settings::sidebarImagesAllowed())
+@php($sbCanManage = in_array(auth()->user()->role, ['admin', 'super_admin'], true))
 <script>
     (function () {
         var KEY = @js($sbKey);
+        var DATAKEY = KEY + '.bgimg';                    // pictures are kept apart from the small settings: one entry per picture
+        var MAX_PICS = 6;                                // how many pictures one person can keep on this device
+        var DATA_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/;   // only a plain base64 picture is ever allowed into the page's CSS
+        function picKey(id) { return DATAKEY + '.' + id; }
+        function newId() { return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+        var IMG_OK = @js($sbImgOk);                      // an admin can switch uploads off for everyone
+        var ADMIN_URL = @js($sbCanManage ? route('settings.sidebar-images') : null);
+        var CSRF = @js(csrf_token());
+        var PRESETS = [
+            { id: 'aurora',   label: 'Aurora',   css: 'radial-gradient(120% 60% at 0% 0%, rgba(45,212,191,.55) 0%, transparent 55%), radial-gradient(110% 70% at 100% 100%, rgba(124,58,237,.6) 0%, transparent 60%), linear-gradient(160deg, #0f172a, #1e1b4b)' },
+            { id: 'ocean',    label: 'Ocean',    css: 'radial-gradient(90% 50% at 80% 0%, rgba(56,189,248,.45) 0%, transparent 60%), linear-gradient(180deg, #0c4a6e 0%, #0b3b63 45%, #0b1220 100%)' },
+            { id: 'sunset',   label: 'Sunset',   css: 'radial-gradient(100% 55% at 100% 0%, rgba(251,146,60,.5) 0%, transparent 60%), linear-gradient(165deg, #7c2d12 0%, #9f1239 50%, #3b0764 100%)' },
+            { id: 'forest',   label: 'Forest',   css: 'radial-gradient(100% 50% at 0% 100%, rgba(52,211,153,.35) 0%, transparent 60%), linear-gradient(170deg, #052e16 0%, #14532d 55%, #134e4a 100%)' },
+            { id: 'graphite', label: 'Graphite', css: 'repeating-linear-gradient(135deg, rgba(255,255,255,.04) 0 2px, transparent 2px 14px), linear-gradient(180deg, #1f2937, #0b1220)' },
+            { id: 'grid',     label: 'Grid',     css: 'radial-gradient(rgba(255,255,255,.14) 1px, transparent 1.4px) 0 0 / 18px 18px, linear-gradient(180deg, #123055, #0b1220)' }
+        ];
+        var POS = { top: 'center top', center: 'center center', bottom: 'center bottom' };
+        var DEFAULT_IMG = { mode: 'none', preset: 'aurora', pos: 'center', dim: 0, blur: false, lum: 0.3 };
+        var lastImg = '';
         var ALLOWED = {
             layout: ['standard', 'stacked', 'floating', 'right', 'top'],
             style: ['classic', 'light', 'navy', 'pill', 'gradient', 'glass', 'tab'],
-            density: ['comfortable', 'compact']
+            density: ['comfortable', 'compact'],
+            angle: [180, 135, 90, 45]
         };
         var HEX = /^#[0-9a-f]{6}$/i;
-        var DEFAULTS = { layout: 'standard', style: 'classic', accent: 'auto', bg: 'auto', density: 'comfortable', collapsed: false, closed: [] };
+        var DEFAULTS = { layout: 'standard', style: 'classic', accent: 'auto', bg: 'auto', bg2: 'none', angle: 180, density: 'comfortable', collapsed: false, closed: [] };
+        function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }
+        function minDim(l) { return l >= 0.65 ? 60 : l >= 0.5 ? 50 : l >= 0.35 ? 40 : 25; }   // brighter pictures need more darkening to keep the menu readable
 
         function lum(hex) {
             var n = parseInt(hex.slice(1), 16), c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(function (v) {
@@ -17,14 +41,83 @@
             });
             return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
         }
+        function contrast(a, b) { var x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+        // Accepts "2563eb", "#2563EB" or "#26e"; gives back "#2563eb" or null.
+        function hexNorm(v) {
+            v = String(v == null ? '' : v).trim().toLowerCase();
+            if (v.charAt(0) !== '#') v = '#' + v;
+            if (/^#[0-9a-f]{3}$/.test(v)) v = '#' + v[1] + v[1] + v[2] + v[2] + v[3] + v[3];
+            return HEX.test(v) ? v : null;
+        }
+        // Moves a colour a step towards black or white (used to make a gradient readable again).
+        function mixHex(hex, toward, t) {
+            var a = parseInt(hex.slice(1), 16), b = parseInt(toward.slice(1), 16), out = '#';
+            [16, 8, 0].forEach(function (sh) {
+                var v = Math.round(((a >> sh) & 255) * (1 - t) + ((b >> sh) & 255) * t);
+                out += (v < 16 ? '0' : '') + v.toString(16);
+            });
+            return out;
+        }
+        var GRAD_PRESETS = [
+            { id: 'ocean',    label: 'Ocean',    from: '#0f2547', to: '#2563eb' },
+            { id: 'sky',      label: 'Sky',      from: '#0c4a6e', to: '#0ea5e9' },
+            { id: 'forest',   label: 'Forest',   from: '#052e2b', to: '#059669' },
+            { id: 'plum',     label: 'Plum',     from: '#2e1065', to: '#7c3aed' },
+            { id: 'rose',     label: 'Rose',     from: '#4c0519', to: '#e11d48' },
+            { id: 'sunset',   label: 'Sunset',   from: '#7c2d12', to: '#ea580c' },
+            { id: 'slate',    label: 'Slate',    from: '#0f172a', to: '#475569' },
+            { id: 'midnight', label: 'Midnight', from: '#020617', to: '#312e81' },
+            { id: 'dawn',     label: 'Dawn',     from: '#fef3c7', to: '#fbcfe8' },
+            { id: 'mint',     label: 'Mint',     from: '#ecfdf5', to: '#99f6e4' },
+            { id: 'cloud',    label: 'Cloud',    from: '#f8fafc', to: '#cbd5e1' },
+            { id: 'lilac',    label: 'Lilac',    from: '#ede9fe', to: '#c4b5fd' }
+        ];
         function read() {
             var saved = {};
             try { saved = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
             var s = Object.assign({}, DEFAULTS, saved);
             Object.keys(ALLOWED).forEach(function (k) { if (ALLOWED[k].indexOf(s[k]) === -1) s[k] = DEFAULTS[k]; });
             ['accent', 'bg'].forEach(function (k) { if (s[k] !== 'auto' && !HEX.test(s[k])) s[k] = 'auto'; });
+            if (s.bg2 !== 'none' && !HEX.test(s.bg2)) s.bg2 = 'none';   // second colour of a gradient
+            s.angle = Number(s.angle);
             s.collapsed = s.collapsed === true;
             s.closed = Array.isArray(s.closed) ? s.closed : [];
+
+            var im = Object.assign({}, DEFAULT_IMG, saved.img && typeof saved.img === 'object' ? saved.img : {});
+            if (['none', 'preset', 'upload'].indexOf(im.mode) === -1) im.mode = 'none';
+            if (!PRESETS.some(function (p) { return p.id === im.preset; })) im.preset = 'aurora';
+            if (!POS[im.pos]) im.pos = 'center';
+            im.lum = clamp(Number(im.lum) || 0.3, 0, 1);
+            im.dim = clamp(Math.round(Number(im.dim) || 0), 0, 85);
+            im.blur = im.blur === true;
+            im.data = '';
+            var pics = [];
+            try {
+                (Array.isArray(saved.pics) ? saved.pics : []).slice(0, MAX_PICS).forEach(function (m) {
+                    if (!m || !/^p[a-z0-9]{3,16}$/.test(String(m.id))) return;
+                    var d = localStorage.getItem(picKey(m.id));
+                    if (d && DATA_RE.test(d)) pics.push({ id: m.id, data: d, lum: clamp(Number(m.lum) || 0.3, 0, 1), pos: POS[m.pos] ? m.pos : 'center', dim: clamp(Math.round(Number(m.dim) || 0), 0, 85), blur: m.blur === true });
+                });
+                // The earlier version kept one picture under a single key: move it into the gallery.
+                var legacy = localStorage.getItem(DATAKEY);
+                if (legacy && DATA_RE.test(legacy) && !pics.length) {
+                    var lid = newId(), entry = { id: lid, lum: im.lum, pos: im.pos, dim: im.dim, blur: im.blur };
+                    localStorage.setItem(picKey(lid), legacy);
+                    // Save the gallery list straight away: this function runs more than once per page load.
+                    saved.pics = [entry]; saved.picId = lid;
+                    localStorage.setItem(KEY, JSON.stringify(saved));
+                    localStorage.removeItem(DATAKEY);
+                    pics.push({ id: lid, data: legacy, lum: im.lum, pos: im.pos, dim: im.dim, blur: im.blur });
+                }
+            } catch (e) {}
+            s.pics = pics;
+            s.picId = pics.some(function (p) { return p.id === saved.picId; }) ? saved.picId : (pics[0] ? pics[0].id : '');
+            if (im.mode === 'upload') {
+                var act = pics.filter(function (p) { return p.id === s.picId; })[0];
+                if (act) { im.data = act.data; im.lum = act.lum; im.pos = act.pos; im.dim = act.dim; im.blur = act.blur; }
+                else im.mode = 'none';
+            }
+            s.img = im;
             return s;
         }
         function paint(s) {
@@ -35,10 +128,31 @@
             // Only the standard layout can shrink to an icon rail.
             r.dataset.sbCollapsed = (s.collapsed && s.layout === 'standard') ? '1' : '0';
 
-            var customBg = s.bg !== 'auto', dark = customBg && lum(s.bg) < 0.4;
+            var im = s.img || DEFAULT_IMG;
+            var imgOn = im.mode === 'preset' || (im.mode === 'upload' && IMG_OK && !!im.data);
+            var grad = !imgOn && s.bg !== 'auto' && s.bg2 !== 'none';
+            var customBg = imgOn || s.bg !== 'auto';
+            var dark = imgOn || (customBg && (grad ? (lum(s.bg) + lum(s.bg2)) / 2 : lum(s.bg)) < 0.4);
+            // A horizontal bar looks flat with a top-to-bottom gradient, so it runs left to right there.
+            var angle = (s.layout === 'top' && s.angle === 180) ? 90 : s.angle;
+            if (imgOn) {
+                // A picture always sits under a dark veil with light text, so the menu stays readable.
+                var preset = PRESETS.filter(function (p) { return p.id === im.preset; })[0] || PRESETS[0];
+                var css = im.mode === 'preset' ? preset.css : 'url("' + im.data + '") ' + POS[im.pos] + ' / cover no-repeat';
+                var blurred = im.mode === 'upload' && im.blur;
+                r.dataset.sbImg = '1';
+                if (css !== lastImg) { st.setProperty('--sb-img', css); lastImg = css; }
+                st.setProperty('--sb-dim', (im.dim / 100).toFixed(2));
+                st.setProperty('--sb-blur', blurred ? '8px' : '0px');
+                st.setProperty('--sb-scale', blurred ? '1.1' : '1');
+            } else {
+                delete r.dataset.sbImg;
+                lastImg = '';
+                ['--sb-img', '--sb-dim', '--sb-blur', '--sb-scale'].forEach(function (p) { st.removeProperty(p); });
+            }
             if (customBg) {
                 r.dataset.sbBg = 'custom';
-                st.setProperty('--sb-bg', s.bg);
+                st.setProperty('--sb-bg', imgOn ? '#0b1220' : (grad ? 'linear-gradient(' + angle + 'deg, ' + s.bg + ', ' + s.bg2 + ')' : s.bg));
                 st.setProperty('--sb-fg', dark ? '#f1f5f9' : '#0f172a');
                 st.setProperty('--sb-fg2', dark ? 'rgba(241,245,249,.72)' : '#64748b');
                 st.setProperty('--sb-hover', dark ? 'rgba(255,255,255,.09)' : 'rgba(15,23,42,.06)');
@@ -60,22 +174,218 @@
             }
         }
 
+        // Shrinks an uploaded picture to a few hundred KB so it loads fast and fits in browser storage.
+        function compress(file) {
+            return new Promise(function (resolve, reject) {
+                var url = URL.createObjectURL(file), img = new Image();
+                img.onload = function () {
+                    URL.revokeObjectURL(url);
+                    var w = img.naturalWidth, h = img.naturalHeight;
+                    if (w < 200 || h < 200) return reject(new Error('small'));
+                    var k = Math.min(1, 1000 / w, 1800 / h), cw = Math.round(w * k), ch = Math.round(h * k);
+                    var c = document.createElement('canvas'); c.width = cw; c.height = ch;
+                    var x = c.getContext('2d'); x.fillStyle = '#0b1220'; x.fillRect(0, 0, cw, ch); x.drawImage(img, 0, 0, cw, ch);
+                    var t = document.createElement('canvas'); t.width = t.height = 16;
+                    var tx = t.getContext('2d'); tx.drawImage(c, 0, 0, 16, 16);
+                    var px = tx.getImageData(0, 0, 16, 16).data, sum = 0;
+                    for (var i = 0; i < px.length; i += 4) sum += (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]) / 255;
+                    var q = 0.82, out = c.toDataURL('image/jpeg', q);
+                    while (out.length > 450000 && q > 0.5) { q -= 0.1; out = c.toDataURL('image/jpeg', q); }
+                    if (out.length > 600000) return reject(new Error('big'));
+                    resolve({ data: out, lum: sum / 256 });
+                };
+                img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('bad')); };
+                img.src = url;
+            });
+        }
+
         // Apply before the first paint so the sidebar never flashes in the wrong state.
         paint(read());
 
         document.addEventListener('alpine:init', function () {
             Alpine.store('sidebar', Object.assign(read(), {
                 save: function () {
+                    var self = this;
+                    if (this.img.mode === 'upload') {   // each picture keeps its own darkness, focus and blur
+                        var cur = this.pics.filter(function (p) { return p.id === self.picId; })[0];
+                        if (cur) { cur.pos = this.img.pos; cur.dim = this.img.dim; cur.blur = this.img.blur; }
+                    }
                     paint(this);
                     try {
-                        localStorage.setItem(KEY, JSON.stringify({ layout: this.layout, style: this.style, accent: this.accent, bg: this.bg, density: this.density, collapsed: this.collapsed, closed: this.closed }));
+                        localStorage.setItem(KEY, JSON.stringify({ layout: this.layout, style: this.style, accent: this.accent, bg: this.bg, bg2: this.bg2, angle: this.angle, density: this.density, collapsed: this.collapsed, closed: this.closed, img: { mode: this.img.mode, preset: this.img.preset, pos: this.img.pos, dim: this.img.dim, blur: this.img.blur, lum: this.img.lum }, pics: this.pics.map(function (p) { return { id: p.id, lum: p.lum, pos: p.pos, dim: p.dim, blur: p.blur }; }), picId: this.picId }));
                     } catch (e) {}
                 },
                 set: function (key, value) {
                     if (ALLOWED[key] && ALLOWED[key].indexOf(value) === -1) return;
                     if ((key === 'accent' || key === 'bg') && value !== 'auto' && !HEX.test(value)) return;
+                    if (key === 'bg2' && value !== 'none' && !HEX.test(value)) return;
                     this[key] = value;
+                    if (key === 'bg' || key === 'bg2') this.img.mode = 'none';   // picking a plain colour or gradient replaces the picture
                     this.save();
+                },
+
+                // ---- gradient: two colours and a direction ----
+                setGradient: function (on) {
+                    if (on) {
+                        if (this.bg === 'auto') this.bg = '#12284a';
+                        if (this.bg2 === 'none') this.bg2 = '#2563eb';
+                        this.img.mode = 'none';
+                    } else {
+                        this.bg2 = 'none';
+                    }
+                    this.save();
+                },
+                gradientCss: function (angle) {
+                    var from = this.bg === 'auto' ? '#12284a' : this.bg, to = this.bg2 === 'none' ? '#2563eb' : this.bg2;
+                    return 'linear-gradient(' + (angle === undefined ? this.angle : angle) + 'deg, ' + from + ', ' + to + ')';
+                },
+                swapGradient: function () {
+                    if (this.bg === 'auto' || this.bg2 === 'none') return;
+                    var keep = this.bg; this.bg = this.bg2; this.bg2 = keep; this.img.mode = 'none';
+                    this.save();
+                },
+                gradientPreset: function (from, to) {
+                    this.bg = from; this.bg2 = to; this.img.mode = 'none';   // the direction you picked stays
+                    this.save();
+                },
+                gradPresets: GRAD_PRESETS,
+                presetCss: function (g) { return 'linear-gradient(' + this.angle + 'deg, ' + g.from + ', ' + g.to + ')'; },
+                isPreset: function (g) { return this.bg === g.from && this.bg2 === g.to; },
+                startHex: function () { return (this.bg === 'auto' ? '#12284a' : this.bg).toUpperCase(); },
+                endHex: function () { return (this.bg2 === 'none' ? '#2563eb' : this.bg2).toUpperCase(); },
+                // Typing a colour code: returns false when it is not a valid colour.
+                setHex: function (key, raw) {
+                    var h = hexNorm(raw);
+                    if (!h) return false;
+                    this.set(key, h);
+                    return true;
+                },
+                gradientDark: function () { return (lum(this.startHex()) + lum(this.endHex())) / 2 < 0.4; },
+                gradientFg: function () { return this.gradientDark() ? '#f1f5f9' : '#0f172a'; },
+                // True when part of the gradient is too close to the text colour to read comfortably.
+                gradientWarn: function () {
+                    var fg = this.gradientFg(), self = this;
+                    return [this.startHex(), this.endHex()].some(function (c) { return contrast(c.toLowerCase(), fg) < 3; });
+                },
+                fixGradient: function () {
+                    var dark = this.gradientDark(), fg = this.gradientFg(), self = this;
+                    ['bg', 'bg2'].forEach(function (k) {
+                        var c = (k === 'bg' ? self.startHex() : self.endHex()).toLowerCase(), n = 0;
+                        while (contrast(c, fg) < 3.2 && n++ < 30) c = mixHex(c, dark ? '#000000' : '#ffffff', 0.1);
+                        self[k] = c;
+                    });
+                    this.img.mode = 'none';
+                    this.save();
+                },
+
+                // ---- background image ----
+                presets: PRESETS,
+                allowImg: IMG_OK,
+                canManage: !!ADMIN_URL,
+                imgError: '',
+                adminError: '',
+                busy: false,
+                imgMin: function () { return this.img.mode === 'upload' ? minDim(this.img.lum) : 0; },
+                imgOn: function () { return this.img.mode === 'preset' || (this.img.mode === 'upload' && this.allowImg && !!this.img.data); },
+                setImgMode: function (mode) { this.imgError = ''; this.img.mode = mode; this.save(); },
+                usePreset: function (id) {
+                    this.imgError = '';
+                    this.img = Object.assign({}, this.img, { mode: 'preset', preset: id, dim: 0 });
+                    this.save();
+                },
+                // ---- my pictures (a small gallery kept on this device) ----
+                maxPics: MAX_PICS,
+                undo: null,
+                undoTimer: 0,
+                activePic: function () { var id = this.picId; return this.pics.filter(function (p) { return p.id === id; })[0] || null; },
+                selectPic: function (id) {
+                    var p = this.pics.filter(function (x) { return x.id === id; })[0];
+                    if (!p) return;
+                    this.imgError = '';
+                    this.picId = id;
+                    this.img = Object.assign({}, this.img, { mode: 'upload', data: p.data, lum: p.lum, pos: p.pos, blur: p.blur, dim: Math.max(p.dim, minDim(p.lum)) });
+                    this.save();
+                },
+                removePic: function (id) {
+                    var i = this.pics.findIndex(function (p) { return p.id === id; });
+                    if (i < 0) return;
+                    var pic = this.pics[i], wasActive = this.picId === id;
+                    try { localStorage.removeItem(picKey(id)); } catch (e) {}
+                    this.pics.splice(i, 1);
+                    if (wasActive) {
+                        this.picId = '';
+                        if (this.img.mode === 'upload') this.img = Object.assign({}, this.img, { mode: 'none', data: '' });
+                    }
+                    this.imgError = '';
+                    // A short chance to take it back, in case it was a slip of the finger.
+                    clearTimeout(this.undoTimer);
+                    var self = this;
+                    this.undo = { pic: pic, index: i, wasActive: wasActive };
+                    this.undoTimer = setTimeout(function () { self.undo = null; }, 8000);
+                    this.save();
+                },
+                undoRemove: function () {
+                    var u = this.undo;
+                    if (!u) return;
+                    clearTimeout(this.undoTimer);
+                    this.undo = null;
+                    if (this.pics.length >= MAX_PICS) { this.imgError = 'Remove another picture first to bring that one back.'; return; }
+                    try { localStorage.setItem(picKey(u.pic.id), u.pic.data); }
+                    catch (e) { this.imgError = 'This browser has no room to bring that picture back.'; return; }
+                    this.pics.splice(Math.min(u.index, this.pics.length), 0, u.pic);
+                    if (u.wasActive) this.selectPic(u.pic.id); else this.save();
+                },
+                removeImage: function () { if (this.picId) this.removePic(this.picId); },
+                upload: async function (ev) {
+                    var files = Array.prototype.slice.call(ev.target.files || []);
+                    ev.target.value = '';
+                    if (!files.length) return;
+                    this.imgError = '';
+                    if (!this.allowImg) { this.imgError = 'Custom images are turned off by your administrator.'; return; }
+                    var room = MAX_PICS - this.pics.length;
+                    if (room <= 0) { this.imgError = 'You can keep up to ' + MAX_PICS + ' pictures. Remove one to add another.'; return; }
+                    var skipped = files.length > room, problem = '', added = null;
+                    files = files.slice(0, room);
+                    this.busy = true;
+                    for (var i = 0; i < files.length; i++) {
+                        var file = files[i];
+                        var okType = /^image\/(jpeg|png|webp)$/.test(file.type) || (!file.type && /\.(jpe?g|png|webp)$/i.test(file.name));
+                        if (!okType) { problem = problem || 'Use JPG, PNG or WebP pictures.'; continue; }
+                        if (file.size > 5 * 1024 * 1024) { problem = problem || 'A picture larger than 5 MB was skipped.'; continue; }
+                        try {
+                            var out = await compress(file), id = newId();
+                            try { localStorage.setItem(picKey(id), out.data); }
+                            catch (e) { problem = problem || 'This browser has no room left for more pictures. Remove one first.'; break; }
+                            var pic = { id: id, data: out.data, lum: out.lum, pos: 'center', blur: false, dim: minDim(out.lum) + 10 };
+                            this.pics.push(pic);
+                            added = pic;
+                        } catch (e) {
+                            problem = problem || (e && e.message === 'small' ? 'A picture was too small. Use ones at least 200 x 200 pixels.'
+                                : e && e.message === 'big' ? 'A picture was too detailed to shrink enough. Try another one.'
+                                : 'A file could not be read as a picture.');
+                        }
+                    }
+                    if (skipped && !problem) problem = 'Only ' + MAX_PICS + ' pictures fit, so the extra ones were skipped.';
+                    this.busy = false;
+                    if (added) this.selectPic(added.id);   // the newest picture shows straight away
+                    this.imgError = problem;
+                },
+                toggleAllow: async function () {
+                    if (!ADMIN_URL || this.busy) return;
+                    var next = !this.allowImg;
+                    this.adminError = ''; this.busy = true;
+                    this.allowImg = next; IMG_OK = next; paint(this);
+                    try {
+                        var res = await fetch(ADMIN_URL, {
+                            method: 'PATCH', credentials: 'same-origin',
+                            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': CSRF, 'X-Requested-With': 'XMLHttpRequest' },
+                            body: JSON.stringify({ enabled: next })
+                        });
+                        if (!res.ok) throw new Error('http');
+                    } catch (e) {
+                        this.allowImg = !next; IMG_OK = !next; paint(this);
+                        this.adminError = 'The setting could not be saved. Please try again.';
+                    } finally { this.busy = false; }
                 },
                 toggle: function () { this.collapsed = !this.collapsed; this.save(); },
                 isClosed: function (group) { return this.closed.indexOf(group) !== -1; },
@@ -83,7 +393,13 @@
                     this.closed = this.isClosed(group) ? this.closed.filter(function (g) { return g !== group; }) : this.closed.concat([group]);
                     this.save();
                 },
-                reset: function () { Object.assign(this, DEFAULTS, { closed: [] }); this.save(); }
+                reset: function () {
+                    try { localStorage.removeItem(DATAKEY); this.pics.forEach(function (p) { localStorage.removeItem(picKey(p.id)); }); } catch (e) {}
+                    clearTimeout(this.undoTimer);
+                    this.imgError = ''; this.undo = null;
+                    Object.assign(this, DEFAULTS, { closed: [], img: Object.assign({ data: '' }, DEFAULT_IMG), pics: [], picId: '' });
+                    this.save();
+                }
             }));
         });
     })();
@@ -496,6 +812,41 @@
     .sbp-mini.m-tab { background: #2c5282; box-shadow: none; padding-right: 0; }
     .sbp-mini.m-tab b { background: rgba(255,255,255,.28); }
     .sbp-mini.m-tab b.on { background: #f8fafc; border-radius: 9999px 0 0 9999px; }
+    .sbg { margin-top: .6rem; }
+    .sbg-mock { display: grid; gap: .2rem; margin-top: .45rem; padding: .5rem .55rem; border-radius: .85rem; box-shadow: inset 0 0 0 1px rgba(15,23,42,.12), 0 8px 18px -12px rgba(15,23,42,.5); }
+    .sbg-mock-row { display: block; padding: .32rem .6rem; border-radius: .55rem; font-size: .76rem; font-weight: 600; line-height: 1.2; }
+    .sbg-mock-row.is-on { background: rgba(127,127,127,.24); }
+    .sbg-mock-row:not(.is-on) { opacity: .88; }
+    .sbp-bg.sbg-tile { aspect-ratio: 1.3 / 1; }
+    .sbg-note, .sbg-warn { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-top: .55rem; padding: .5rem .65rem; border-radius: .7rem; font-size: .72rem; line-height: 1.35; }
+    .sbg-note { background: #eff6ff; color: #1e3a8a; }
+    .sbg-warn { background: #fffbeb; color: #92400e; }
+    .sbg-note button, .sbg-warn button { flex: none; border: 0; background: transparent; padding: .2rem 0; font-size: .72rem; font-weight: 700; color: inherit; text-decoration: underline; cursor: pointer; }
+    .sbg-note button:focus-visible, .sbg-warn button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; border-radius: .25rem; }
+    .sbg-hexin { width: 100%; min-width: 0; padding: 0; border: 0; background: transparent; font: inherit; font-size: .74rem; font-weight: 600; letter-spacing: .02em; color: #0f172a; text-transform: uppercase; font-variant-numeric: tabular-nums; }
+    .sbg-hexin:focus { outline: none; box-shadow: none; }
+    .sbg-stop.is-bad { border-color: #ef4444; background: #fef2f2; }
+    .sbg-stop.is-bad .sbg-hexin { color: #b91c1c; }
+    .sbg-stops { display: flex; align-items: center; gap: .4rem; margin-top: .6rem; }
+    .sbg-stop { position: relative; display: flex; align-items: center; gap: .5rem; flex: 1; min-width: 0; padding: .35rem .5rem; border: 1px solid #e2e8f0; border-radius: .75rem; background: #fff; transition: border-color .15s ease, background-color .15s ease; }
+    .sbg-stop:hover { border-color: #94a3b8; }
+    .sbg-stop:focus-within { outline: 2px solid #2563eb; outline-offset: 1px; }
+    .sbg-chip { position: relative; flex: none; width: 1.8rem; height: 1.8rem; cursor: pointer; border-radius: .55rem; box-shadow: inset 0 0 0 1px rgba(15,23,42,.18); overflow: hidden; }
+    .sbg-chip input { position: absolute; inset: -.4rem; width: calc(100% + .8rem); height: calc(100% + .8rem); padding: 0; border: 0; opacity: 0; cursor: pointer; }
+    .sbg-meta { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+    .sbg-k { font-size: .62rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #64748b; }
+    .sbg-hex { font-size: .74rem; font-weight: 600; color: #0f172a; font-variant-numeric: tabular-nums; }
+    .sbg-swap { flex: none; display: grid; place-items: center; width: 2rem; height: 2rem; padding: 0; border: 1px solid #e2e8f0; border-radius: 9999px; background: #fff; color: #475569; cursor: pointer; transition: transform .25s ease, background-color .15s ease; }
+    .sbg-swap:hover { background: #f1f5f9; transform: rotate(180deg); }
+    .sbg-swap:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+    .sbg-swap svg { width: 1rem; height: 1rem; }
+    @media (pointer: coarse) { .sbg-hexin { font-size: 16px; } .sbg-swap { width: 2.5rem; height: 2.5rem; } .sbg-chip { width: 2.1rem; height: 2.1rem; } }
+    .sbg-dirs { display: grid; grid-template-columns: repeat(4, 1fr); gap: .4rem; margin-top: .35rem; }
+    .sbg-dir { display: flex; flex-direction: column; align-items: center; gap: .25rem; padding: .3rem .2rem; border: 1.5px solid #e2e8f0; border-radius: .7rem; background: #fff; font-size: .64rem; font-weight: 600; color: #334155; cursor: pointer; }
+    .sbg-dir i { display: block; width: 100%; height: 1.7rem; border-radius: .45rem; box-shadow: inset 0 0 0 1px rgba(15,23,42,.1); }
+    .sbg-dir:hover { border-color: #94a3b8; }
+    .sbg-dir:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+    .sbg-dir[aria-pressed="true"] { border-color: #1e3a5f; box-shadow: 0 0 0 3px rgba(30,58,95,.12); }
     .sbp-seg { display: flex; padding: .2rem; border-radius: .65rem; background: #f1f5f9; }
     .sbp-seg button { flex: 1; border: 0; border-radius: .5rem; background: transparent; padding: .4rem .5rem; font-size: .75rem; font-weight: 600; color: #475569; cursor: pointer; }
     .sbp-seg button[aria-pressed="true"] { background: #fff; color: #0f172a; box-shadow: 0 1px 3px rgba(15,23,42,.15); }
@@ -506,6 +857,49 @@
     .sbp-switch[aria-checked="true"]::after { transform: translateX(1rem); }
     .sbp-reset { border: 0; background: transparent; padding: .25rem 0; font-size: .75rem; font-weight: 600; color: #64748b; cursor: pointer; text-decoration: underline; }
     .sbp-note { margin-top: .6rem; font-size: .7rem; color: #64748b; }
+
+
+    /* ---- Background picture: sits under a dark veil, so the menu text always stays readable ---- */
+    html[data-sb-img] aside.sb { isolation: isolate; }
+    html[data-sb-img] aside.sb::before, html[data-sb-img] aside.sb::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+    html[data-sb-img] aside.sb::before { background: var(--sb-img); filter: blur(var(--sb-blur, 0px)); transform: scale(var(--sb-scale, 1)); clip-path: inset(0 round var(--sb-r, 0px)); }
+    html[data-sb-img] aside.sb::after { background: rgba(2, 6, 23, var(--sb-dim, 0)); border-radius: var(--sb-r, 0px); }
+    html[data-sb-img][data-sb-layout="floating"] aside.sb { --sb-r: 1.25rem; }
+    html[data-sb-img] .sb .sb-brand, html[data-sb-img] .sb .sb-foot { background: transparent !important; }
+
+    /* ---- Customise panel: background picker ---- */
+    .sbp-bgs { display: grid; grid-template-columns: repeat(4, 1fr); gap: .45rem; }
+    .sbp-bg { position: relative; display: grid; place-items: center; aspect-ratio: 3 / 4; padding: 0; overflow: hidden; border: 1.5px solid #e2e8f0; border-radius: .65rem; background: #f8fafc; color: #475569; font-size: .66rem; font-weight: 600; cursor: pointer; text-align: center; }
+    .sbp-bg:hover { border-color: #94a3b8; }
+    .sbp-bg[aria-pressed="true"] { border-color: #1e3a5f; box-shadow: 0 0 0 3px rgba(30,58,95,.15); }
+    .sbp-bg:focus-visible, .sbp-bg:focus-within { outline: 2px solid #2563eb; outline-offset: 2px; }
+    .sbp-bg > span.t { position: absolute; right: .25rem; top: .25rem; display: none; place-items: center; width: 1.1rem; height: 1.1rem; border-radius: 9999px; background: #fff; color: #1e3a5f; box-shadow: 0 1px 3px rgba(15,23,42,.3); }
+    .sbp-bg[aria-pressed="true"] > span.t { display: grid; }
+    .sbp-bg > span.n { position: absolute; left: 0; right: 0; bottom: 0; padding: .15rem 0; background: rgba(15,23,42,.55); color: #fff; font-size: .58rem; font-weight: 600; }
+    .sbp-bg.is-up { border-style: dashed; }
+    .sbp-pic { position: relative; }
+    .sbp-pic .sbp-bg { width: 100%; }
+    .sbp-pic .sbp-bg > span.t { right: auto; left: .25rem; }
+    .sbp-pic-x { position: absolute; right: -.3rem; top: -.3rem; z-index: 2; display: grid; place-items: center; width: 1.4rem; height: 1.4rem; padding: 0; border: 2px solid #fff; border-radius: 9999px; background: #334155; color: #fff; cursor: pointer; box-shadow: 0 1px 3px rgba(15,23,42,.4); }
+    .sbp-pic-x:hover { background: #b91c1c; }
+    .sbp-pic-x:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+    @media (pointer: coarse) { .sbp-pic-x { width: 1.8rem; height: 1.8rem; right: -.4rem; top: -.4rem; } }
+    .sbp-range { width: 100%; margin: .15rem 0 0; accent-color: #1e3a5f; }
+    .sbp-sub { display: flex; justify-content: space-between; gap: .5rem; margin-top: .75rem; font-weight: 600; }
+    .sbp-sub small { font-weight: 500; color: #64748b; }
+    .sbp-actions { display: flex; gap: .5rem; margin-top: .65rem; }
+    .sbp-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #cbd5e1; border-radius: .6rem; background: #fff; padding: .45rem .5rem; font-size: .75rem; font-weight: 600; color: #334155; cursor: pointer; text-align: center; }
+    .sbp-btn:hover { background: #f8fafc; }
+    .sbp-btn.danger { color: #b91c1c; border-color: #fecaca; }
+    .sbp-btn.danger:hover { background: #fef2f2; }
+    .sbp-btn:focus-within, .sbp-btn:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+    .sbp-err { margin-top: .6rem; border-radius: .6rem; background: #fef2f2; color: #b91c1c; padding: .5rem .65rem; font-size: .72rem; }
+    .sbp-off { margin-top: .5rem; border-radius: .6rem; background: #f1f5f9; color: #475569; padding: .5rem .65rem; font-size: .72rem; }
+    .sbp-admin { margin-top: 1.1rem; padding-top: .35rem; border-top: 1px dashed #cbd5e1; }
+    @media (max-width: 1023px), (pointer: coarse) {
+        .sbp-btn { min-height: 2.6rem; font-size: .8125rem; }
+        .sbp-range { height: 1.75rem; }
+    }
 
     /* =====================================================================
        RESPONSIVE SHELL

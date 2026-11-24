@@ -1,0 +1,12 @@
+Responsive sidebar + phone navigation + background pictures
+============================================================
+1. Copy the folders in this zip over your project (app, database, resources, routes).
+2. php artisan migrate        (adds the small app_settings table)
+3. npm run build
+4. Hard-refresh the browser (Ctrl+Shift+R).
+
+Background pictures
+- Everyone: Customise > Background picture (built-in backgrounds + own upload).
+- Admins and Super Admins: Customise > Company setting > "Allow custom background pictures".
+  On by default. When off, uploads are hidden for everyone (built-in backgrounds stay).
+  Every change is written to the activity log.

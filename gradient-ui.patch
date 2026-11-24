@@ -1,0 +1,212 @@
+--- /tmp/theirs.app.orig	2026-11-24 01:06:47.261305821 +0000
++++ /home/claude/p2/jms-it-ticketing/resources/views/layouts/app.blade.php	2026-11-24 01:06:47.278676649 +0000
+@@ -253,6 +253,11 @@
+                                 <button type="button" @click="$store.sidebar.setGradient(true)" :aria-pressed="($store.sidebar.bg2 !== 'none').toString()">Gradient</button>
+                             </div>
+ 
++                            <div class="sbg-note" x-show="$store.sidebar.imgOn()" x-cloak role="status">
++                                <span>A background picture is covering your colour.</span>
++                                <button type="button" @click="$store.sidebar.setImgMode('none')">Remove picture</button>
++                            </div>
++
+                             <div x-show="$store.sidebar.bg2 === 'none'" style="margin-top:.5rem">
+                                 <div class="sbp-swatches" role="group" aria-label="Sidebar colour">
+                                 <button type="button" class="sbp-sw sbp-auto" title="Automatic (follows the design)" aria-label="Automatic" @click="$store.sidebar.set('bg', 'auto')" :aria-pressed="($store.sidebar.bg === 'auto').toString()"></button>
+@@ -267,35 +272,57 @@
+                             </div>
+ 
+                             <div x-show="$store.sidebar.bg2 !== 'none'" x-cloak class="sbg">
+-                                <div class="sbp-swatches" role="group" aria-label="Gradient presets">
+-                                    <button type="button" class="sbp-sw" title="Ocean" aria-label="Ocean gradient" style="background:linear-gradient(135deg,#0f2547,#2563eb)" @click="$store.sidebar.gradientPreset('#0f2547', '#2563eb', 135)" :aria-pressed="($store.sidebar.bg === '#0f2547' && $store.sidebar.bg2 === '#2563eb').toString()"></button>
+-                                    <button type="button" class="sbp-sw" title="Sky" aria-label="Sky gradient" style="background:linear-gradient(135deg,#0c4a6e,#0ea5e9)" @click="$store.sidebar.gradientPreset('#0c4a6e', '#0ea5e9', 135)" :aria-pressed="($store.sidebar.bg === '#0c4a6e' && $store.sidebar.bg2 === '#0ea5e9').toString()"></button>
+-                                    <button type="button" class="sbp-sw" title="Forest" aria-label="Forest gradient" style="background:linear-gradient(135deg,#052e2b,#059669)" @click="$store.sidebar.gradientPreset('#052e2b', '#059669', 135)" :aria-pressed="($store.sidebar.bg === '#052e2b' && $store.sidebar.bg2 === '#059669').toString()"></button>
+-                                    <button type="button" class="sbp-sw" title="Plum" aria-label="Plum gradient" style="background:linear-gradient(135deg,#2e1065,#7c3aed)" @click="$store.sidebar.gradientPreset('#2e1065', '#7c3aed', 135)" :aria-pressed="($store.sidebar.bg === '#2e1065' && $store.sidebar.bg2 === '#7c3aed').toString()"></button>
+-                                    <button type="button" class="sbp-sw" title="Rose" aria-label="Rose gradient" style="background:linear-gradient(135deg,#4c0519,#e11d48)" @click="$store.sidebar.gradientPreset('#4c0519', '#e11d48', 135)" :aria-pressed="($store.sidebar.bg === '#4c0519' && $store.sidebar.bg2 === '#e11d48').toString()"></button>
+-                                    <button type="button" class="sbp-sw" title="Sunset" aria-label="Sunset gradient" style="background:linear-gradient(135deg,#7c2d12,#ea580c)" @click="$store.sidebar.gradientPreset('#7c2d12', '#ea580c', 135)" :aria-pressed="($store.sidebar.bg === '#7c2d12' && $store.sidebar.bg2 === '#ea580c').toString()"></button>
+-                                    <button type="button" class="sbp-sw" title="Slate" aria-label="Slate gradient" style="background:linear-gradient(135deg,#0f172a,#475569)" @click="$store.sidebar.gradientPreset('#0f172a', '#475569', 135)" :aria-pressed="($store.sidebar.bg === '#0f172a' && $store.sidebar.bg2 === '#475569').toString()"></button>
+-                                    <button type="button" class="sbp-sw" title="Dawn" aria-label="Dawn gradient" style="background:linear-gradient(135deg,#fef3c7,#fbcfe8)" @click="$store.sidebar.gradientPreset('#fef3c7', '#fbcfe8', 135)" :aria-pressed="($store.sidebar.bg === '#fef3c7' && $store.sidebar.bg2 === '#fbcfe8').toString()"></button>
++                                <p class="sbp-label" style="margin-top:0">Presets</p>
++                                <div class="sbp-bgs" role="group" aria-label="Gradient presets">
++                                    <template x-for="g in $store.sidebar.gradPresets" :key="g.id">
++                                        <button type="button" class="sbp-bg sbg-tile" :style="'background:' + $store.sidebar.presetCss(g)" :title="g.label" :aria-label="g.label + ' gradient'"
++                                                @click="$store.sidebar.gradientPreset(g.from, g.to)" :aria-pressed="$store.sidebar.isPreset(g).toString()">
++                                            <span class="t" aria-hidden="true"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg></span>
++                                            <span class="n" x-text="g.label"></span>
++                                        </button>
++                                    </template>
+                                 </div>
+ 
+-                                <div class="sbg-preview" :style="'background:' + $store.sidebar.gradientCss()" role="img" aria-label="Preview of your gradient"></div>
+-
++                                <p class="sbp-label">Your colours</p>
+                                 <div class="sbg-stops">
+-                                    <label class="sbg-stop">
+-                                        <span class="sbg-chip" :style="'background:' + ($store.sidebar.bg === 'auto' ? '#12284a' : $store.sidebar.bg)">
+-                                            <input type="color" :value="$store.sidebar.bg === 'auto' ? '#12284a' : $store.sidebar.bg" @input="$store.sidebar.set('bg', $event.target.value)" aria-label="Start colour">
+-                                        </span>
+-                                        <span class="sbg-meta"><span class="sbg-k">Start</span><span class="sbg-hex" x-text="$store.sidebar.bg === 'auto' ? '#12284A' : $store.sidebar.bg.toUpperCase()"></span></span>
+-                                    </label>
++                                    <div class="sbg-stop" x-data="{ bad: false }" :class="bad ? 'is-bad' : ''">
++                                <label class="sbg-chip" :style="'background:' + $store.sidebar.startHex()">
++                                    <input type="color" :value="$store.sidebar.startHex().toLowerCase()" @input="$store.sidebar.set('bg', $event.target.value)" aria-label="Start colour picker">
++                                </label>
++                                <span class="sbg-meta">
++                                    <label class="sbg-k" for="sbg-hex-start">Start</label>
++                                    <input id="sbg-hex-start" type="text" class="sbg-hexin" maxlength="7" spellcheck="false" autocomplete="off" autocapitalize="off"
++                                           :value="$store.sidebar.startHex()"
++                                           @input="bad = false; if ($event.target.value.replace('#', '').length === 6) $store.sidebar.setHex('bg', $event.target.value)"
++                                           @change="if ($store.sidebar.setHex('bg', $event.target.value)) { $event.target.value = $store.sidebar.startHex() } else { bad = true; $event.target.value = $store.sidebar.startHex(); setTimeout(() => bad = false, 1800) }"
++                                           aria-label="Start colour code">
++                                </span>
++                            </div>
+                                     <button type="button" class="sbg-swap" @click="$store.sidebar.swapGradient()" aria-label="Swap start and end colours" title="Swap colours">
+                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4 3 8l4 4M3 8h14M17 12l4 4-4 4M21 16H7"/></svg>
+                                     </button>
+-                                    <label class="sbg-stop">
+-                                        <span class="sbg-chip" :style="'background:' + ($store.sidebar.bg2 === 'none' ? '#2563eb' : $store.sidebar.bg2)">
+-                                            <input type="color" :value="$store.sidebar.bg2 === 'none' ? '#2563eb' : $store.sidebar.bg2" @input="$store.sidebar.set('bg2', $event.target.value)" aria-label="End colour">
+-                                        </span>
+-                                        <span class="sbg-meta"><span class="sbg-k">End</span><span class="sbg-hex" x-text="$store.sidebar.bg2 === 'none' ? '#2563EB' : $store.sidebar.bg2.toUpperCase()"></span></span>
+-                                    </label>
++                                    <div class="sbg-stop" x-data="{ bad: false }" :class="bad ? 'is-bad' : ''">
++                                <label class="sbg-chip" :style="'background:' + $store.sidebar.endHex()">
++                                    <input type="color" :value="$store.sidebar.endHex().toLowerCase()" @input="$store.sidebar.set('bg2', $event.target.value)" aria-label="End colour picker">
++                                </label>
++                                <span class="sbg-meta">
++                                    <label class="sbg-k" for="sbg-hex-end">End</label>
++                                    <input id="sbg-hex-end" type="text" class="sbg-hexin" maxlength="7" spellcheck="false" autocomplete="off" autocapitalize="off"
++                                           :value="$store.sidebar.endHex()"
++                                           @input="bad = false; if ($event.target.value.replace('#', '').length === 6) $store.sidebar.setHex('bg2', $event.target.value)"
++                                           @change="if ($store.sidebar.setHex('bg2', $event.target.value)) { $event.target.value = $store.sidebar.endHex() } else { bad = true; $event.target.value = $store.sidebar.endHex(); setTimeout(() => bad = false, 1800) }"
++                                           aria-label="End colour code">
++                                </span>
++                            </div>
++                                </div>
++
++                                <div class="sbg-mock" :style="'background:' + $store.sidebar.gradientCss() + ';color:' + $store.sidebar.gradientFg()" role="img" aria-label="Preview of your gradient with sample menu text">
++                                    <span class="sbg-mock-row is-on">Dashboard</span>
++                                    <span class="sbg-mock-row">My tickets</span>
++                                </div>
++                                <div class="sbg-warn" x-show="$store.sidebar.gradientWarn()" x-cloak role="status">
++                                    <span>Menu text may be hard to read on part of this gradient.</span>
++                                    <button type="button" @click="$store.sidebar.fixGradient()">Fix it</button>
+                                 </div>
+ 
+                                 <p class="sbp-label">Direction</p>
+--- /tmp/theirs.assets.orig	2026-11-24 01:06:47.262330990 +0000
++++ /home/claude/p2/jms-it-ticketing/resources/views/layouts/partials/sidebar-assets.blade.php	2026-11-24 01:07:34.461399335 +0000
+@@ -37,6 +37,37 @@
+             });
+             return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+         }
++        function contrast(a, b) { var x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
++        // Accepts "2563eb", "#2563EB" or "#26e"; gives back "#2563eb" or null.
++        function hexNorm(v) {
++            v = String(v == null ? '' : v).trim().toLowerCase();
++            if (v.charAt(0) !== '#') v = '#' + v;
++            if (/^#[0-9a-f]{3}$/.test(v)) v = '#' + v[1] + v[1] + v[2] + v[2] + v[3] + v[3];
++            return HEX.test(v) ? v : null;
++        }
++        // Moves a colour a step towards black or white (used to make a gradient readable again).
++        function mixHex(hex, toward, t) {
++            var a = parseInt(hex.slice(1), 16), b = parseInt(toward.slice(1), 16), out = '#';
++            [16, 8, 0].forEach(function (sh) {
++                var v = Math.round(((a >> sh) & 255) * (1 - t) + ((b >> sh) & 255) * t);
++                out += (v < 16 ? '0' : '') + v.toString(16);
++            });
++            return out;
++        }
++        var GRAD_PRESETS = [
++            { id: 'ocean',    label: 'Ocean',    from: '#0f2547', to: '#2563eb' },
++            { id: 'sky',      label: 'Sky',      from: '#0c4a6e', to: '#0ea5e9' },
++            { id: 'forest',   label: 'Forest',   from: '#052e2b', to: '#059669' },
++            { id: 'plum',     label: 'Plum',     from: '#2e1065', to: '#7c3aed' },
++            { id: 'rose',     label: 'Rose',     from: '#4c0519', to: '#e11d48' },
++            { id: 'sunset',   label: 'Sunset',   from: '#7c2d12', to: '#ea580c' },
++            { id: 'slate',    label: 'Slate',    from: '#0f172a', to: '#475569' },
++            { id: 'midnight', label: 'Midnight', from: '#020617', to: '#312e81' },
++            { id: 'dawn',     label: 'Dawn',     from: '#fef3c7', to: '#fbcfe8' },
++            { id: 'mint',     label: 'Mint',     from: '#ecfdf5', to: '#99f6e4' },
++            { id: 'cloud',    label: 'Cloud',    from: '#f8fafc', to: '#cbd5e1' },
++            { id: 'lilac',    label: 'Lilac',    from: '#ede9fe', to: '#c4b5fd' }
++        ];
+         function read() {
+             var saved = {};
+             try { saved = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
+@@ -184,8 +215,37 @@
+                     var keep = this.bg; this.bg = this.bg2; this.bg2 = keep; this.img.mode = 'none';
+                     this.save();
+                 },
+-                gradientPreset: function (from, to, angle) {
+-                    this.bg = from; this.bg2 = to; this.angle = angle; this.img.mode = 'none';
++                gradientPreset: function (from, to) {
++                    this.bg = from; this.bg2 = to; this.img.mode = 'none';   // the direction you picked stays
++                    this.save();
++                },
++                gradPresets: GRAD_PRESETS,
++                presetCss: function (g) { return 'linear-gradient(' + this.angle + 'deg, ' + g.from + ', ' + g.to + ')'; },
++                isPreset: function (g) { return this.bg === g.from && this.bg2 === g.to; },
++                startHex: function () { return (this.bg === 'auto' ? '#12284a' : this.bg).toUpperCase(); },
++                endHex: function () { return (this.bg2 === 'none' ? '#2563eb' : this.bg2).toUpperCase(); },
++                // Typing a colour code: returns false when it is not a valid colour.
++                setHex: function (key, raw) {
++                    var h = hexNorm(raw);
++                    if (!h) return false;
++                    this.set(key, h);
++                    return true;
++                },
++                gradientDark: function () { return (lum(this.startHex()) + lum(this.endHex())) / 2 < 0.4; },
++                gradientFg: function () { return this.gradientDark() ? '#f1f5f9' : '#0f172a'; },
++                // True when part of the gradient is too close to the text colour to read comfortably.
++                gradientWarn: function () {
++                    var fg = this.gradientFg(), self = this;
++                    return [this.startHex(), this.endHex()].some(function (c) { return contrast(c.toLowerCase(), fg) < 3; });
++                },
++                fixGradient: function () {
++                    var dark = this.gradientDark(), fg = this.gradientFg(), self = this;
++                    ['bg', 'bg2'].forEach(function (k) {
++                        var c = (k === 'bg' ? self.startHex() : self.endHex()).toLowerCase(), n = 0;
++                        while (contrast(c, fg) < 3.2 && n++ < 30) c = mixHex(c, dark ? '#000000' : '#ffffff', 0.1);
++                        self[k] = c;
++                    });
++                    this.img.mode = 'none';
+                     this.save();
+                 },
+ 
+@@ -682,12 +742,25 @@
+     .sbp-mini.m-tab b { background: rgba(255,255,255,.28); }
+     .sbp-mini.m-tab b.on { background: #f8fafc; border-radius: 9999px 0 0 9999px; }
+     .sbg { margin-top: .6rem; }
+-    .sbg-preview { height: 2.6rem; border-radius: .8rem; box-shadow: inset 0 0 0 1px rgba(15,23,42,.12), 0 8px 18px -12px rgba(15,23,42,.5); transition: background .2s ease; }
++    .sbg-mock { display: grid; gap: .2rem; margin-top: .45rem; padding: .5rem .55rem; border-radius: .85rem; box-shadow: inset 0 0 0 1px rgba(15,23,42,.12), 0 8px 18px -12px rgba(15,23,42,.5); }
++    .sbg-mock-row { display: block; padding: .32rem .6rem; border-radius: .55rem; font-size: .76rem; font-weight: 600; line-height: 1.2; }
++    .sbg-mock-row.is-on { background: rgba(127,127,127,.24); }
++    .sbg-mock-row:not(.is-on) { opacity: .88; }
++    .sbp-bg.sbg-tile { aspect-ratio: 1.3 / 1; }
++    .sbg-note, .sbg-warn { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-top: .55rem; padding: .5rem .65rem; border-radius: .7rem; font-size: .72rem; line-height: 1.35; }
++    .sbg-note { background: #eff6ff; color: #1e3a8a; }
++    .sbg-warn { background: #fffbeb; color: #92400e; }
++    .sbg-note button, .sbg-warn button { flex: none; border: 0; background: transparent; padding: .2rem 0; font-size: .72rem; font-weight: 700; color: inherit; text-decoration: underline; cursor: pointer; }
++    .sbg-note button:focus-visible, .sbg-warn button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; border-radius: .25rem; }
++    .sbg-hexin { width: 100%; min-width: 0; padding: 0; border: 0; background: transparent; font: inherit; font-size: .74rem; font-weight: 600; letter-spacing: .02em; color: #0f172a; text-transform: uppercase; font-variant-numeric: tabular-nums; }
++    .sbg-hexin:focus { outline: none; box-shadow: none; }
++    .sbg-stop.is-bad { border-color: #ef4444; background: #fef2f2; }
++    .sbg-stop.is-bad .sbg-hexin { color: #b91c1c; }
+     .sbg-stops { display: flex; align-items: center; gap: .4rem; margin-top: .6rem; }
+-    .sbg-stop { position: relative; display: flex; align-items: center; gap: .5rem; flex: 1; min-width: 0; padding: .35rem .5rem; border: 1px solid #e2e8f0; border-radius: .75rem; background: #fff; cursor: pointer; transition: border-color .15s ease; }
++    .sbg-stop { position: relative; display: flex; align-items: center; gap: .5rem; flex: 1; min-width: 0; padding: .35rem .5rem; border: 1px solid #e2e8f0; border-radius: .75rem; background: #fff; transition: border-color .15s ease, background-color .15s ease; }
+     .sbg-stop:hover { border-color: #94a3b8; }
+     .sbg-stop:focus-within { outline: 2px solid #2563eb; outline-offset: 1px; }
+-    .sbg-chip { position: relative; flex: none; width: 1.8rem; height: 1.8rem; border-radius: .55rem; box-shadow: inset 0 0 0 1px rgba(15,23,42,.18); overflow: hidden; }
++    .sbg-chip { position: relative; flex: none; width: 1.8rem; height: 1.8rem; cursor: pointer; border-radius: .55rem; box-shadow: inset 0 0 0 1px rgba(15,23,42,.18); overflow: hidden; }
+     .sbg-chip input { position: absolute; inset: -.4rem; width: calc(100% + .8rem); height: calc(100% + .8rem); padding: 0; border: 0; opacity: 0; cursor: pointer; }
+     .sbg-meta { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+     .sbg-k { font-size: .62rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #64748b; }
+@@ -696,6 +769,7 @@
+     .sbg-swap:hover { background: #f1f5f9; transform: rotate(180deg); }
+     .sbg-swap:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+     .sbg-swap svg { width: 1rem; height: 1rem; }
++    @media (pointer: coarse) { .sbg-hexin { font-size: 16px; } .sbg-swap { width: 2.5rem; height: 2.5rem; } .sbg-chip { width: 2.1rem; height: 2.1rem; } }
+     .sbg-dirs { display: grid; grid-template-columns: repeat(4, 1fr); gap: .4rem; margin-top: .35rem; }
+     .sbg-dir { display: flex; flex-direction: column; align-items: center; gap: .25rem; padding: .3rem .2rem; border: 1.5px solid #e2e8f0; border-radius: .7rem; background: #fff; font-size: .64rem; font-weight: 600; color: #334155; cursor: pointer; }
+     .sbg-dir i { display: block; width: 100%; height: 1.7rem; border-radius: .45rem; box-shadow: inset 0 0 0 1px rgba(15,23,42,.1); }

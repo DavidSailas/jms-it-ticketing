@@ -1,4 +1,5 @@
 @php
+    $sbCanManage = in_array(auth()->user()->role, ['admin', 'super_admin'], true);
     $role = auth()->user()->role;
     $theme = \App\Support\RoleTheme::for($role);
     $isUser = $role === 'user';
@@ -247,7 +248,18 @@
                             </div>
 
                             <p class="sbp-label">Sidebar colour</p>
-                            <div class="sbp-swatches" role="group" aria-label="Sidebar colour">
+                            <div class="sbp-seg" role="group" aria-label="Solid colour or gradient">
+                                <button type="button" @click="$store.sidebar.setGradient(false)" :aria-pressed="($store.sidebar.bg2 === 'none').toString()">Solid</button>
+                                <button type="button" @click="$store.sidebar.setGradient(true)" :aria-pressed="($store.sidebar.bg2 !== 'none').toString()">Gradient</button>
+                            </div>
+
+                            <div class="sbg-note" x-show="$store.sidebar.imgOn()" x-cloak role="status">
+                                <span>A background picture is covering your colour.</span>
+                                <button type="button" @click="$store.sidebar.setImgMode('none')">Remove picture</button>
+                            </div>
+
+                            <div x-show="$store.sidebar.bg2 === 'none'" style="margin-top:.5rem">
+                                <div class="sbp-swatches" role="group" aria-label="Sidebar colour">
                                 <button type="button" class="sbp-sw sbp-auto" title="Automatic (follows the design)" aria-label="Automatic" @click="$store.sidebar.set('bg', 'auto')" :aria-pressed="($store.sidebar.bg === 'auto').toString()"></button>
                                 <button type="button" class="sbp-sw" title="White" aria-label="White" style="background:#ffffff" @click="$store.sidebar.set('bg', '#ffffff')" :aria-pressed="($store.sidebar.bg === '#ffffff').toString()"></button>
                                 <button type="button" class="sbp-sw" title="Charcoal" aria-label="Charcoal" style="background:#0f172a" @click="$store.sidebar.set('bg', '#0f172a')" :aria-pressed="($store.sidebar.bg === '#0f172a').toString()"></button>
@@ -256,6 +268,155 @@
                                 <button type="button" class="sbp-sw" title="Plum" aria-label="Plum" style="background:#3b0764" @click="$store.sidebar.set('bg', '#3b0764')" :aria-pressed="($store.sidebar.bg === '#3b0764').toString()"></button>
                                 <button type="button" class="sbp-sw" title="Maroon" aria-label="Maroon" style="background:#7f1d1d" @click="$store.sidebar.set('bg', '#7f1d1d')" :aria-pressed="($store.sidebar.bg === '#7f1d1d').toString()"></button>
                                 <label class="sbp-sw sbp-pick" title="Pick any colour"><input type="color" :value="$store.sidebar.bg === 'auto' ? '#12284a' : $store.sidebar.bg" @input="$store.sidebar.set('bg', $event.target.value)" aria-label="Custom sidebar colour"></label>
+                            </div>
+                            </div>
+
+                            <div x-show="$store.sidebar.bg2 !== 'none'" x-cloak class="sbg">
+                                <p class="sbp-label" style="margin-top:0">Presets</p>
+                                <div class="sbp-bgs" role="group" aria-label="Gradient presets">
+                                    <template x-for="g in $store.sidebar.gradPresets" :key="g.id">
+                                        <button type="button" class="sbp-bg sbg-tile" :style="'background:' + $store.sidebar.presetCss(g)" :title="g.label" :aria-label="g.label + ' gradient'"
+                                                @click="$store.sidebar.gradientPreset(g.from, g.to)" :aria-pressed="$store.sidebar.isPreset(g).toString()">
+                                            <span class="t" aria-hidden="true"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg></span>
+                                            <span class="n" x-text="g.label"></span>
+                                        </button>
+                                    </template>
+                                </div>
+
+                                <p class="sbp-label">Your colours</p>
+                                <div class="sbg-stops">
+                                    <div class="sbg-stop" x-data="{ bad: false }" :class="bad ? 'is-bad' : ''">
+                                <label class="sbg-chip" :style="'background:' + $store.sidebar.startHex()">
+                                    <input type="color" :value="$store.sidebar.startHex().toLowerCase()" @input="$store.sidebar.set('bg', $event.target.value)" aria-label="Start colour picker">
+                                </label>
+                                <span class="sbg-meta">
+                                    <label class="sbg-k" for="sbg-hex-start">Start</label>
+                                    <input id="sbg-hex-start" type="text" class="sbg-hexin" maxlength="7" spellcheck="false" autocomplete="off" autocapitalize="off"
+                                           :value="$store.sidebar.startHex()"
+                                           @input="bad = false; if ($event.target.value.replace('#', '').length === 6) $store.sidebar.setHex('bg', $event.target.value)"
+                                           @change="if ($store.sidebar.setHex('bg', $event.target.value)) { $event.target.value = $store.sidebar.startHex() } else { bad = true; $event.target.value = $store.sidebar.startHex(); setTimeout(() => bad = false, 1800) }"
+                                           aria-label="Start colour code">
+                                </span>
+                            </div>
+                                    <button type="button" class="sbg-swap" @click="$store.sidebar.swapGradient()" aria-label="Swap start and end colours" title="Swap colours">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4 3 8l4 4M3 8h14M17 12l4 4-4 4M21 16H7"/></svg>
+                                    </button>
+                                    <div class="sbg-stop" x-data="{ bad: false }" :class="bad ? 'is-bad' : ''">
+                                <label class="sbg-chip" :style="'background:' + $store.sidebar.endHex()">
+                                    <input type="color" :value="$store.sidebar.endHex().toLowerCase()" @input="$store.sidebar.set('bg2', $event.target.value)" aria-label="End colour picker">
+                                </label>
+                                <span class="sbg-meta">
+                                    <label class="sbg-k" for="sbg-hex-end">End</label>
+                                    <input id="sbg-hex-end" type="text" class="sbg-hexin" maxlength="7" spellcheck="false" autocomplete="off" autocapitalize="off"
+                                           :value="$store.sidebar.endHex()"
+                                           @input="bad = false; if ($event.target.value.replace('#', '').length === 6) $store.sidebar.setHex('bg2', $event.target.value)"
+                                           @change="if ($store.sidebar.setHex('bg2', $event.target.value)) { $event.target.value = $store.sidebar.endHex() } else { bad = true; $event.target.value = $store.sidebar.endHex(); setTimeout(() => bad = false, 1800) }"
+                                           aria-label="End colour code">
+                                </span>
+                            </div>
+                                </div>
+
+                                <div class="sbg-mock" :style="'background:' + $store.sidebar.gradientCss() + ';color:' + $store.sidebar.gradientFg()" role="img" aria-label="Preview of your gradient with sample menu text">
+                                    <span class="sbg-mock-row is-on">Dashboard</span>
+                                    <span class="sbg-mock-row">My tickets</span>
+                                </div>
+                                <div class="sbg-warn" x-show="$store.sidebar.gradientWarn()" x-cloak role="status">
+                                    <span>Menu text may be hard to read on part of this gradient.</span>
+                                    <button type="button" @click="$store.sidebar.fixGradient()">Fix it</button>
+                                </div>
+
+                                <p class="sbp-label">Direction</p>
+                                <div class="sbg-dirs" role="group" aria-label="Gradient direction">
+                                    <button type="button" class="sbg-dir" @click="$store.sidebar.set('angle', 180)" :aria-pressed="($store.sidebar.angle === 180).toString()" title="Down">
+                                        <i :style="'background:' + $store.sidebar.gradientCss(180)"></i>Down
+                                    </button>
+                                    <button type="button" class="sbg-dir" @click="$store.sidebar.set('angle', 135)" :aria-pressed="($store.sidebar.angle === 135).toString()" title="Diagonal">
+                                        <i :style="'background:' + $store.sidebar.gradientCss(135)"></i>Diagonal
+                                    </button>
+                                    <button type="button" class="sbg-dir" @click="$store.sidebar.set('angle', 90)" :aria-pressed="($store.sidebar.angle === 90).toString()" title="Across">
+                                        <i :style="'background:' + $store.sidebar.gradientCss(90)"></i>Across
+                                    </button>
+                                    <button type="button" class="sbg-dir" @click="$store.sidebar.set('angle', 45)" :aria-pressed="($store.sidebar.angle === 45).toString()" title="Up-right">
+                                        <i :style="'background:' + $store.sidebar.gradientCss(45)"></i>Up-right
+                                    </button>
+                                </div>
+                            </div>
+
+                            <p class="sbp-label">Background picture</p>
+                            <div class="sbp-bgs" role="group" aria-label="Background picture">
+                                <button type="button" class="sbp-bg" @click="$store.sidebar.setImgMode('none')" :aria-pressed="(! $store.sidebar.imgOn()).toString()">
+                                    None
+                                    <span class="t" aria-hidden="true"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg></span>
+                                </button>
+
+                                <template x-for="p in $store.sidebar.presets" :key="p.id">
+                                    <button type="button" class="sbp-bg" :style="'background:' + p.css" :title="p.label" :aria-label="p.label + ' background'"
+                                            @click="$store.sidebar.usePreset(p.id)" :aria-pressed="($store.sidebar.img.mode === 'preset' && $store.sidebar.img.preset === p.id).toString()">
+                                        <span class="t" aria-hidden="true"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg></span>
+                                        <span class="n" x-text="p.label"></span>
+                                    </button>
+                                </template>
+
+                            </div>
+
+                            {{-- My pictures: a small gallery on this device, only while an administrator allows uploads --}}
+                            <template x-if="$store.sidebar.allowImg">
+                                <div>
+                                    <p class="sbp-sub" style="margin-top:.9rem"><span>My pictures</span><small x-text="$store.sidebar.pics.length + ' of ' + $store.sidebar.maxPics"></small></p>
+                                    <div class="sbp-bgs" style="margin-top:.4rem" role="group" aria-label="My pictures">
+                                        <template x-for="p in $store.sidebar.pics" :key="p.id">
+                                            <div class="sbp-pic">
+                                                <button type="button" class="sbp-bg" :style="'background:url(\'' + p.data + '\') center / cover'" aria-label="Use this picture"
+                                                        @click="$store.sidebar.selectPic(p.id)" :aria-pressed="($store.sidebar.img.mode === 'upload' && $store.sidebar.picId === p.id).toString()">
+                                                    <span class="t" aria-hidden="true"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg></span>
+                                                </button>
+                                                <button type="button" class="sbp-pic-x" aria-label="Remove this picture" title="Remove" @click.stop="$store.sidebar.removePic(p.id)">
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+                                                </button>
+                                            </div>
+                                        </template>
+                                        <label class="sbp-bg is-up" x-show="$store.sidebar.pics.length < $store.sidebar.maxPics" title="Add pictures">
+                                            <input type="file" class="sr-only" multiple accept="image/jpeg,image/png,image/webp" @change="$store.sidebar.upload($event)" :disabled="$store.sidebar.busy">
+                                            <span style="display:grid;place-items:center;gap:.2rem;padding:.25rem">
+                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                                                <span x-text="$store.sidebar.busy ? 'Working...' : 'Add'"></span>
+                                            </span>
+                                        </label>
+                                    </div>
+                                    <p class="sbp-note" x-show="! $store.sidebar.pics.length">JPG, PNG or WebP, up to 5 MB each. You can add several at once and keep up to <span x-text="$store.sidebar.maxPics"></span>. They stay on this device.</p>
+                                    <div class="sbg-note" x-show="$store.sidebar.undo" x-cloak role="status">
+                                        <span>Picture removed.</span>
+                                        <button type="button" @click="$store.sidebar.undoRemove()">Undo</button>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <p class="sbp-off" x-show="! $store.sidebar.allowImg" x-cloak>Uploading your own picture is turned off by your administrator.</p>
+                            <p class="sbp-err" x-show="$store.sidebar.imgError" x-cloak role="alert" x-text="$store.sidebar.imgError"></p>
+
+                            <div x-show="$store.sidebar.imgOn()" x-cloak>
+                                <label class="sbp-sub" for="sb-dim"><span>Darken</span><small x-text="$store.sidebar.img.dim + '%'"></small></label>
+                                <input id="sb-dim" type="range" class="sbp-range" step="1" max="85" :min="$store.sidebar.imgMin()" :value="$store.sidebar.img.dim"
+                                       @input="$store.sidebar.img.dim = Number($event.target.value); $store.sidebar.save()">
+                                <p class="sbp-note" x-show="$store.sidebar.imgMin() > 0" x-cloak>Bright pictures are darkened a little so the menu stays easy to read.</p>
+
+                                <template x-if="$store.sidebar.img.mode === 'upload'">
+                                    <div>
+                                        <p class="sbp-sub"><span>Focus</span></p>
+                                        <div class="sbp-seg" role="group" aria-label="Which part of the picture to show" style="margin-top:.35rem">
+                                            <button type="button" @click="$store.sidebar.img.pos = 'top'; $store.sidebar.save()" :aria-pressed="($store.sidebar.img.pos === 'top').toString()">Top</button>
+                                            <button type="button" @click="$store.sidebar.img.pos = 'center'; $store.sidebar.save()" :aria-pressed="($store.sidebar.img.pos === 'center').toString()">Middle</button>
+                                            <button type="button" @click="$store.sidebar.img.pos = 'bottom'; $store.sidebar.save()" :aria-pressed="($store.sidebar.img.pos === 'bottom').toString()">Bottom</button>
+                                        </div>
+                                        <div class="sbp-row">
+                                            <span id="sb-blur-label">Soft blur</span>
+                                            <button type="button" class="sbp-switch" role="switch" aria-labelledby="sb-blur-label" @click="$store.sidebar.img.blur = ! $store.sidebar.img.blur; $store.sidebar.save()" :aria-checked="$store.sidebar.img.blur.toString()"></button>
+                                        </div>
+                                        <div class="sbp-actions">
+                                            <button type="button" class="sbp-btn danger" @click="$store.sidebar.removeImage()">Remove this picture</button>
+                                        </div>
+                                    </div>
+                                </template>
                             </div>
 
                             <p class="sbp-label">Accent colour</p>
@@ -282,6 +443,20 @@
                             </div>
 
                             <p class="sbp-note">Saved on this device for your account.</p>
+
+                            @if ($sbCanManage)
+                                {{-- Admins and super admins only: allow or block uploaded pictures for everyone --}}
+                                <div class="sbp-admin">
+                                    <p class="sbp-label">Company setting</p>
+                                    <div class="sbp-row" style="margin-top:.35rem">
+                                        <span id="sb-allow-label">Allow custom background pictures</span>
+                                        <button type="button" class="sbp-switch" role="switch" aria-labelledby="sb-allow-label" aria-describedby="sb-allow-help"
+                                                @click="$store.sidebar.toggleAllow()" :aria-checked="$store.sidebar.allowImg.toString()" :disabled="$store.sidebar.busy"></button>
+                                    </div>
+                                    <p class="sbp-note" id="sb-allow-help">Applies to everyone. When off, pictures people already uploaded are hidden, not deleted. Only admins and super admins see this.</p>
+                                    <p class="sbp-err" x-show="$store.sidebar.adminError" x-cloak role="alert" x-text="$store.sidebar.adminError"></p>
+                                </div>
+                            @endif
                         </div>
 
                         <div class="sbp-foot">

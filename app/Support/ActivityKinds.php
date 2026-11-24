@@ -37,6 +37,7 @@ class ActivityKinds
             'ticket_reschedule_requested' => ['ticket', 'bg-orange-50 text-orange-600', '<path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/>'],
             'ticket_reschedule_approved' => ['ticket', 'bg-emerald-50 text-emerald-600', '<path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/>'],
             'ticket_reschedule_declined' => ['ticket', 'bg-rose-50 text-rose-600', '<path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/>'],
+            'setting_changed' => ['security', 'bg-violet-50 text-violet-600', '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>'],
             'role_created' => ['security', 'bg-violet-50 text-violet-600', '<path d="M12 3l8 3v6c0 4.5-3.2 8.2-8 9-4.8-.8-8-4.5-8-9V6l8-3z"/><path d="M9 12l2 2 4-4"/>'],
             'role_updated' => ['security', 'bg-violet-50 text-violet-600', '<path d="M12 3l8 3v6c0 4.5-3.2 8.2-8 9-4.8-.8-8-4.5-8-9V6l8-3z"/><path d="M9 12l2 2 4-4"/>'],
             'role_deleted' => ['security', 'bg-rose-50 text-rose-600', '<path d="M12 3l8 3v6c0 4.5-3.2 8.2-8 9-4.8-.8-8-4.5-8-9V6l8-3z"/><path d="M9 12l2 2 4-4"/>'],

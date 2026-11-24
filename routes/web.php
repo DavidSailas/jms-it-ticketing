@@ -14,6 +14,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\ScheduleController;
+use App\Http\Controllers\SidebarSettingsController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\TicketBoardController;
 use App\Http\Controllers\TicketController;
@@ -28,6 +29,10 @@ Route::middleware('auth')->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
     Route::get('/dashboard/charts', DashboardChartController::class)
         ->middleware('role:admin,super_admin')->name('dashboard.charts');
+
+    // Admins and super admins decide whether people may upload their own sidebar background image.
+    Route::patch('/settings/sidebar-images', [SidebarSettingsController::class, 'update'])
+        ->middleware('role:admin,super_admin')->name('settings.sidebar-images');
 
     // Ctrl+K search: tickets, people and companies this person is allowed to see.
     Route::get('/search', SearchController::class)->middleware('throttle:60,1')->name('search');
