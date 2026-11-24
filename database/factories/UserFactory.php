@@ -27,6 +27,7 @@ class UserFactory extends Factory
             'name' => fake()->name(),
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
+            'role' => 'user',   // same as the database default, so a new model is never role-less
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
         ];

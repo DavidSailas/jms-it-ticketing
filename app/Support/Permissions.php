@@ -60,7 +60,7 @@ class Permissions
     }
 
     /** What the built-in roles can do. Also used when an account has no role record yet. */
-    public static function defaultsFor(string $base): array
+    public static function defaultsFor(?string $base): array
     {
         return match ($base) {
             'super_admin' => self::keys(),

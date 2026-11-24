@@ -7,6 +7,7 @@ use App\Models\Ticket;
 use App\Models\TicketAttachment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use App\Support\Attachments;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -136,8 +137,9 @@ class AttachmentsTest extends TestCase
                 ->assertSessionHasErrors('files.0');
         }
 
-        $six = collect(range(1, 6))->map(fn ($i) => $this->png("shot{$i}.png"))->all();
-        $this->actingAs($this->owner)->post('/tickets', $this->payload(['files' => $six]))->assertSessionHasErrors('files');
+        // One more than the allowed number of files (the limit lives in Attachments::MAX_FILES).
+        $tooMany = collect(range(1, Attachments::MAX_FILES + 1))->map(fn ($i) => $this->png("shot{$i}.png"))->all();
+        $this->actingAs($this->owner)->post('/tickets', $this->payload(['files' => $tooMany]))->assertSessionHasErrors('files');
 
         $this->assertSame(0, Ticket::withoutGlobalScopes()->count());
         $this->assertSame(0, TicketAttachment::count());
