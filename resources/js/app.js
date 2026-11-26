@@ -14,6 +14,7 @@ window.Alpine = Alpine;
 Alpine.data('notificationBell', (cfg) => ({
     open: false,
     unread: cfg.initial.unread,
+    more: cfg.initial.more || 0,
     items: cfg.initial.items,
     toasts: [],
     lastTs: Math.max(0, ...cfg.initial.items.map((i) => i.ts)),
@@ -47,6 +48,7 @@ Alpine.data('notificationBell', (cfg) => ({
 
             this.items = data.items;
             this.unread = data.unread;
+            this.more = data.more || 0;
             this.announce();
 
             if (fresh.length) {

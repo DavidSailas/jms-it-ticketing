@@ -223,10 +223,17 @@ class User extends Authenticatable
     }
 
     /** Data for the notification bell (also served as JSON for live updates). */
-    public function notificationFeed(int $limit = 8): array
+    /** How many notifications the bell dropdown shows; everything else lives on the Notifications page. */
+    public const NOTIFICATION_PREVIEW = 10;
+
+    public function notificationFeed(int $limit = self::NOTIFICATION_PREVIEW): array
     {
+        $total = $this->notifications()->count();
+
         return [
             'unread' => $this->unreadNotifications()->count(),
+            'total'  => $total,
+            'more'   => max(0, $total - $limit),
             'items'  => $this->presentNotifications($this->notifications()->latest()->take($limit)->get()),
         ];
     }

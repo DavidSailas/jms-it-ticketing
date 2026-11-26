@@ -3,7 +3,7 @@
         ->map(fn ($v) => ['class' => $v[0], 'icon' => $v[1]])->all();
 
     $config = [
-        'initial'   => auth()->user()->notificationFeed(8),
+        'initial'   => auth()->user()->notificationFeed(),
         'kinds'     => $kinds,
         'feedUrl'   => route('notifications.feed'),
         'readAllUrl' => route('notifications.read-all'),
@@ -40,9 +40,9 @@
             <button type="button" @click="markAll()" x-show="unread > 0" x-cloak class="text-xs font-semibold text-brand-600 hover:text-brand-800 hover:underline">Mark all as read</button>
         </div>
 
-        <div class="max-h-[26rem] overflow-y-auto">
+        <div class="max-h-[min(34rem,calc(100vh_-_10rem))] overflow-y-auto overscroll-contain">
             <template x-for="item in items" :key="item.id">
-                <a :href="item.url" class="flex gap-3 border-b border-slate-50 px-4 py-3 transition hover:bg-slate-50" :class="[item.read ? '' : 'bg-brand-50/50', item.unavailable ? 'opacity-60' : '']">
+                <a :href="item.url" class="flex gap-3 border-b border-slate-50 border-l-[3px] px-4 py-3 transition hover:bg-slate-50 focus:outline-none focus-visible:bg-slate-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500" :class="[item.read ? 'border-l-transparent' : 'border-l-brand-500 bg-brand-50/50', item.unavailable ? 'opacity-60' : '']">
                     <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" :class="look(item.kind).class">
                         <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" x-html="look(item.kind).icon" aria-hidden="true"></svg>
                     </span>
@@ -51,11 +51,15 @@
                             <span class="text-sm leading-snug text-slate-800" :class="item.read ? 'font-medium' : 'font-semibold'" x-text="item.title"></span>
                             <span x-show="!item.read" class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand-500" aria-label="Unread"></span>
                         </span>
-                        <span class="mt-0.5 line-clamp-2 block text-xs leading-snug text-slate-500" x-text="item.message"></span>
+                        <span class="mt-0.5 line-clamp-2 text-xs leading-snug text-slate-500" x-text="item.message"></span>
                         <span class="mt-1 flex items-center gap-2 text-[11px] text-slate-400"><span x-text="item.time"></span><span x-show="item.unavailable" x-cloak class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">No longer available</span></span>
                     </span>
                 </a>
             </template>
+
+            <p x-show="more > 0" x-cloak class="border-t border-slate-100 bg-slate-50/60 px-4 py-2.5 text-center text-[11px] text-slate-500">
+                Showing your <span x-text="items.length"></span> latest. The rest are on the full page.
+            </p>
 
             <div x-show="items.length === 0" class="px-6 py-12 text-center">
                 <span class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
@@ -66,7 +70,12 @@
             </div>
         </div>
 
-        <a href="{{ route('notifications.index') }}" class="block border-t border-slate-100 bg-slate-50 px-4 py-3 text-center text-sm font-semibold text-brand-600 transition hover:bg-slate-100">View all notifications</a>
+        <a href="{{ route('notifications.index') }}"
+       class="flex items-center justify-center gap-2 border-t border-slate-100 bg-slate-50 px-4 py-3 text-sm font-semibold text-brand-600 transition hover:bg-slate-100 hover:text-brand-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500">
+        View all notifications
+        <span x-show="more > 0" x-cloak class="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-bold text-brand-700" x-text="'+' + (more > 99 ? '99+' : more) + ' more'"></span>
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+    </a>
     </div>
 
     {{-- Live pop-up toasts --}}
