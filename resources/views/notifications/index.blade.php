@@ -22,7 +22,7 @@
         <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             @forelse ($items as $n)
                 @php([$class, $icon] = $kinds[$n['kind']] ?? $kinds['default'])
-                <a href="{{ $n['url'] }}" class="flex gap-4 border-b border-slate-100 px-5 py-4 transition last:border-0 hover:bg-slate-50 {{ $n['read'] ? '' : 'bg-brand-50/50' }}">
+                <a href="{{ $n['url'] }}" class="flex gap-4 border-b border-slate-100 px-5 py-4 transition last:border-0 hover:bg-slate-50 {{ $n['read'] ? '' : 'bg-brand-50/50' }} {{ $n['unavailable'] ? 'opacity-60' : '' }}">
                     <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full {{ $class }}">
                         <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{!! $icon !!}</svg>
                     </span>
@@ -32,6 +32,9 @@
                             <span class="shrink-0 text-xs text-slate-400">{{ $n['time'] }}</span>
                         </span>
                         <span class="mt-0.5 block text-sm text-slate-500">{{ $n['message'] }}</span>
+                        @if ($n['unavailable'])
+                            <span class="mt-1.5 inline-block rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-500">No longer available to you</span>
+                        @endif
                     </span>
                     @unless ($n['read']) <span class="mt-2 h-2 w-2 shrink-0 rounded-full bg-brand-500" aria-label="Unread"></span> @endunless
                 </a>

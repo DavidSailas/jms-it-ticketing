@@ -42,7 +42,7 @@
 
         <div class="max-h-[26rem] overflow-y-auto">
             <template x-for="item in items" :key="item.id">
-                <a :href="item.url" class="flex gap-3 border-b border-slate-50 px-4 py-3 transition hover:bg-slate-50" :class="item.read ? '' : 'bg-brand-50/50'">
+                <a :href="item.url" class="flex gap-3 border-b border-slate-50 px-4 py-3 transition hover:bg-slate-50" :class="[item.read ? '' : 'bg-brand-50/50', item.unavailable ? 'opacity-60' : '']">
                     <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" :class="look(item.kind).class">
                         <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" x-html="look(item.kind).icon" aria-hidden="true"></svg>
                     </span>
@@ -52,7 +52,7 @@
                             <span x-show="!item.read" class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand-500" aria-label="Unread"></span>
                         </span>
                         <span class="mt-0.5 line-clamp-2 block text-xs leading-snug text-slate-500" x-text="item.message"></span>
-                        <span class="mt-1 block text-[11px] text-slate-400" x-text="item.time"></span>
+                        <span class="mt-1 flex items-center gap-2 text-[11px] text-slate-400"><span x-text="item.time"></span><span x-show="item.unavailable" x-cloak class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">No longer available</span></span>
                     </span>
                 </a>
             </template>

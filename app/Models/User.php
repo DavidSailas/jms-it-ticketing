@@ -227,12 +227,41 @@ class User extends Authenticatable
     {
         return [
             'unread' => $this->unreadNotifications()->count(),
-            'items'  => $this->notifications()->latest()->take($limit)->get()
-                ->map(fn ($n) => $this->presentNotification($n))->all(),
+            'items'  => $this->presentNotifications($this->notifications()->latest()->take($limit)->get()),
         ];
     }
 
-    public function presentNotification($n): array
+    /** Presents a batch of notifications, marking the ones whose ticket this person can no longer open. */
+    public function presentNotifications(iterable $notifications): array
+    {
+        $gone = $this->unavailableTicketIds($notifications);
+
+        return collect($notifications)->map(fn ($n) => $this->presentNotification($n, $gone))->all();
+    }
+
+    /**
+     * Ticket ids mentioned by these notifications that this person cannot open any more (reassigned, finished,
+     * removed). Engineers may still look at tickets waiting for acceptance, so those count as available.
+     *
+     * @return array<int,int>
+     */
+    public function unavailableTicketIds(iterable $notifications): array
+    {
+        $ids = collect($notifications)->map(fn ($n) => $n->data['ticket_id'] ?? null)->filter()->map(fn ($i) => (int) $i)->unique()->values();
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        // Ticket::query() is already limited to what the signed-in person may see (CompanyScope).
+        $open = \App\Models\Ticket::query()->whereIn('id', $ids)->pluck('id');
+        if ($this->role === 'it_support') {
+            $open = $open->merge(\App\Models\Ticket::withoutGlobalScopes()->awaitingAcceptance()->whereIn('id', $ids)->pluck('id'));
+        }
+
+        return $ids->diff($open->map(fn ($i) => (int) $i))->values()->all();
+    }
+
+    public function presentNotification($n, array $gone = []): array
     {
         return [
             'id'      => $n->id,
@@ -243,6 +272,7 @@ class User extends Authenticatable
             'ts'      => $n->created_at->timestamp,
             'read'    => $n->read_at !== null,
             'url'     => route('notifications.open', $n->id),
+            'unavailable' => in_array((int) ($n->data['ticket_id'] ?? 0), $gone, true),
         ];
     }
 }

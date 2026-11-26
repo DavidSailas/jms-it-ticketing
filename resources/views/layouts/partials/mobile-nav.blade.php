@@ -14,9 +14,10 @@
     $moreActive = $moreItems->contains(fn ($n) => request()->routeIs(explode('|', $n[2]))) || request()->routeIs('profile.*');
 
     // Small counters shown on a tab or tile: the live "waiting for acceptance" queue and today's bookings.
-    $mnBadge = function (string $route) use ($pendingFeed, $todayBookings) {
+    $mnBadge = function (string $route) use ($pendingFeed, $todayBookings, $availableCount) {
         if ($route === 'tickets.index' && $pendingFeed) return ['store', null];
         if ($route === 'schedule.index' && $todayBookings > 0) return ['num', $todayBookings > 99 ? '99+' : $todayBookings];
+        if ($route === 'tickets.available' && $availableCount > 0) return ['num', $availableCount > 99 ? '99+' : $availableCount];
         return null;
     };
 @endphp

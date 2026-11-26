@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AttachmentController;
+use App\Http\Controllers\AvailableTicketController;
 use App\Http\Controllers\BrandingController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\CompanyController;
@@ -84,6 +85,12 @@ Route::middleware('auth')->group(function () {
     // Quick-assign panel on the company page: the JMS engineer cards, loaded when the panel opens.
     Route::get('tickets/engineer-picker', [TicketController::class, 'engineerPicker'])
         ->middleware('permission:tickets.assign')->name('tickets.engineer-picker');
+    // IT Engineers: a read-only look at tickets still waiting for an admin to accept them (must come before tickets/{ticket}).
+    Route::middleware('role:it_support')->group(function () {
+        Route::get('tickets/available', [AvailableTicketController::class, 'index'])->name('tickets.available');
+        Route::get('tickets/available/{id}', [AvailableTicketController::class, 'show'])->whereNumber('id')->name('tickets.preview');
+    });
+
     Route::resource('tickets', TicketController::class)->only(['index', 'create', 'store', 'show']);
     Route::post('tickets/{ticket}/cancel', [TicketController::class, 'cancel'])->name('tickets.cancel');
     // Admin / Super Admin (or any role with the permission): cancel a ticket at any stage, with a reason.

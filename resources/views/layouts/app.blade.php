@@ -16,10 +16,13 @@
     $todayBookings = in_array($role, $staff)
         ? \App\Models\Ticket::bookings(auth()->user())->whereIn('status', \App\Models\Ticket::ACTIVE)->whereDate('scheduled_for', today())->count()
         : 0;
+    // IT Engineers see how many tickets are still waiting for an admin to accept them (a read-only list).
+    $availableCount = $role === 'it_support' ? \App\Models\Ticket::withoutGlobalScopes()->awaitingAcceptance()->count() : 0;
     $pendingConfig = $pendingFeed ? ['initial' => $pendingFeed, 'url' => route('tickets.pending-feed'), 'pollMs' => 8000] : null;
     $icons = [
         'palette' => '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.9 1.5-1.9-.3-1 .4-2.1 1.5-2.1H17a4 4 0 0 0 4-4c0-5-4-10-9-10z"/><path d="M7.5 11.5h.01M10 7.5h.01M14.5 7.5h.01"/>',
         'building' => '<path d="M4 21V5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v16M14 9h5a1 1 0 0 1 1 1v11M2 21h20M8 8h2M8 12h2M8 16h2"/>',
+        'inbox'   => '<path d="M4 13h4l1.5 2.5h5L16 13h4M4 13l2-8h12l2 8v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-6z"/>',
         'grid'    => '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
         'plus'    => '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
         'list'    => '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
@@ -37,6 +40,7 @@
     $nav = [
         [$isUser ? 'New Request' : 'Dashboard', 'dashboard', $isUser ? 'dashboard|tickets.create' : 'dashboard', $all, $isUser ? 'plus' : 'grid', 'main'],
         [$isUser ? 'My Tickets' : ($role === 'it_support' ? 'My Assignments' : 'All Tickets'), 'tickets.index', 'tickets.index|tickets.show', $all, 'list', 'main'],
+        ['Available Tickets', 'tickets.available', 'tickets.available|tickets.preview', ['it_support'], 'inbox', 'main'],
         ['My Calendar', 'calendar.index', 'calendar.*', ['user'], 'calendar', 'main'],
         ['Schedule', 'schedule.index', 'schedule.*', $staff, 'calendar', 'main'],
         ['Saved Replies', 'canned-replies.index', 'canned-replies.*', $staff, 'chat', 'main'],
@@ -155,6 +159,10 @@
                                       x-text="$store.pending.count > 99 ? '99+' : $store.pending.count"
                                       class="sb-badge ml-auto rounded-full bg-violet-600 px-2 py-0.5 text-xs font-semibold text-white"
                                       title="Waiting for acceptance" aria-label="Tickets waiting for acceptance"></span>
+                            @endif
+                            @if ($route === 'tickets.available' && $availableCount > 0)
+                                <span class="sb-badge ml-auto rounded-full bg-violet-600 px-2 py-0.5 text-xs font-semibold text-white"
+                                      title="Waiting for an admin to accept" aria-label="{{ $availableCount }} waiting for acceptance">{{ $availableCount > 99 ? '99+' : $availableCount }}</span>
                             @endif
                             @if ($route === 'schedule.index' && $todayBookings > 0)
                                 <span class="sb-badge ml-auto rounded-full px-2 py-0.5 text-xs font-semibold {{ $theme['count'] }}"
